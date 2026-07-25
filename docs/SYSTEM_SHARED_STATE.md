@@ -3,9 +3,9 @@
 You are an AI coding assistant contributing to a modular Agentic OSINT System.
 ALL agents read from and write to a single global state object (`AgentState`).
 
-## Shared Pydantic Schema (`src/schemas/state.py`)
+## Shared Pydantic Schema (`schemas/state.py`)
 
-\`\`\`python
+```python
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -36,7 +36,7 @@ class AgentState(BaseModel):
     verified_claims: List[VerifiedClaim] = []
     final_report: Optional[str] = None
     retry_count: int = 0
-\`\`\`
+```
 
 ## STRICT INTEGRATION RULES FOR AI ASSISTANTS:
 1. Do NOT modify the schema without explicit approval from Dev 1 (Lead).
