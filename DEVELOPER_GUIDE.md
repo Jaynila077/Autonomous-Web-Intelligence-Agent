@@ -29,7 +29,7 @@ Find your specific role below. Copy the prompt and give it to your AI assistant 
     *   **Your Goal:** Extract facts and run an LLM audit to drop hallucinations.
     *   **Your AI Prompt:** `docs/DEV4_VERIFIER.md`
 *   **DEV 5: Reporter Agent & UI (MAHAK)**
-    *   **Your Boundary:** `agents/reporter/` and `ui/`
+    *   **Your Boundary:** `agents/reporter/`
     *   **Your Goal:** Synthesize the verified facts into a final report and build the dashboard.
     *   **Your AI Prompt:** `docs/DEV5_REPORTER.md`
 
