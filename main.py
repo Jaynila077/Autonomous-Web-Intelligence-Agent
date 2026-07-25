@@ -1,5 +1,5 @@
 import asyncio
-from src.schemas.state import AgentState
+from schemas.state import AgentState
 
 async def run_pipeline(query: str):
     # Initialize global state
