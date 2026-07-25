@@ -1,6 +1,4 @@
-# AWIS Developer Onboarding & AI Workflow Guide
-
-Based on the reference document "DEVELOPER_GUIDE.pdf".
+# AWIA Developer Onboarding & AI Workflow Guide
 
 ## 1. Core Development Rules (Read Before Coding)
 1. **The Shared State is Holy:** The AgentState Pydantic model (`schemas/state.py`) is the single source of truth. All agents read from and append data to this central object. Do not modify this file without explicit approval from Dev 1 (Lead).
