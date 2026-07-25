@@ -17,7 +17,7 @@ Build the Extraction Engine and Vector Database Ingestion Pipeline.
 4. **State Update:** Append valid extractions to `state.extracted_data`.
 
 ## Code Boundary
-You must ONLY write code inside `/agents/extractor/` and `/src/storage/`.
+You must ONLY write code inside `/agents/extractor/` and `/storage/`.
 
 ## Mock Test Interface
 Provide a standalone test script `test_extractor.py` that accepts dummy `scouted_links` and returns populated `extracted_data`.

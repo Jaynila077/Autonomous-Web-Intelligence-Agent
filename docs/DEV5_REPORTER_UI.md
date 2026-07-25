@@ -20,7 +20,7 @@ Build the Report Synthesizer and Minimal UI Dashboard to render final intelligen
    - Final report with clickable citations
 
 ## Code Boundary
-You must ONLY write code inside `/agents/reporter/` and `/src/ui/`.
+You must ONLY write code inside `/agents/reporter/` and `/ui/`.
 
 ## Mock Test Interface
 Provide a standalone test script `test_reporter.py` that takes a list of dummy `verified_claims` and renders the final report.
