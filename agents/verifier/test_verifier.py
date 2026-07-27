@@ -18,7 +18,7 @@ def build_dummy_state() -> AgentState:
         ExtractedContent(
             url="https://example.com/product-a",
             status="SUCCESS",
-            raw_markdown=(
+            content_markdown=(
                 "Product A launched on March 3, 2024. "
                 "It costs $49 per month for the base tier. "
                 "Over 12000 teams currently use it in production."
@@ -27,7 +27,7 @@ def build_dummy_state() -> AgentState:
         ExtractedContent(
             url="https://example.com/product-b",
             status="SUCCESS",
-            raw_markdown=(
+            content_markdown=(
                 "Product B is rumored to support 999 languages, which is unknown "
                 "and unverified by the vendor. The interface is described as clean."
             ),
@@ -35,10 +35,14 @@ def build_dummy_state() -> AgentState:
         ExtractedContent(
             url="https://example.com/broken-page",
             status="FAILED",
-            raw_markdown="",  # scrape failed, should be filtered out entirely
+            content_markdown="",  # scrape failed, should be filtered out entirely
         ),
     ]
-    return AgentState(extracted_data=sources)
+    return AgentState(
+        query_id="test-query-001",
+        original_query="Dummy query for verifier testing",
+        extracted_data=sources,
+    )
 
 
 def main() -> None:
@@ -54,9 +58,7 @@ def main() -> None:
         print(f"- [{vc.verdict}] ({vc.confidence_score:.2f}) {vc.claim}  <- {vc.source_url}")
 
     print("\n=== Retry State ===")
-    print(f"retry: {result_state.retry}")
-    if result_state.retry_reason:
-        print(f"reason: {result_state.retry_reason}")
+    print(f"retry_count: {result_state.retry_count}")
 
 
 if __name__ == "__main__":

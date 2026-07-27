@@ -7,8 +7,10 @@ into small, independently-checkable factual statements.
 
 from typing import List
 
+from schemas.state import ExtractedContent
+
 from .llm_client import LLMClient
-from .models import AtomicClaim, ExtractedContent
+from .models import AtomicClaim
 
 SYSTEM_PROMPT = """You extract atomic factual claims from source documents.
 
@@ -27,7 +29,7 @@ USER_PROMPT_TEMPLATE = """DOCUMENT:
 
 def extract_atomic_claims(llm: LLMClient, content: ExtractedContent) -> List[AtomicClaim]:
     """Run the extraction LLM call and parse its bullet-list output."""
-    user_prompt = USER_PROMPT_TEMPLATE.format(markdown=content.raw_markdown)
+    user_prompt = USER_PROMPT_TEMPLATE.format(markdown=content.content_markdown)
     raw_output = llm.complete(SYSTEM_PROMPT, user_prompt)
 
     claims: List[AtomicClaim] = []

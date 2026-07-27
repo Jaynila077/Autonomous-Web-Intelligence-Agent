@@ -10,8 +10,10 @@ claim never generated it, which reduces "grading your own homework" bias.
 import json
 from dataclasses import dataclass
 
+from schemas.state import VerifiedClaim
+
 from .llm_client import LLMClient
-from .models import AtomicClaim, VerifiedClaim, Verdict
+from .models import AtomicClaim
 
 SYSTEM_PROMPT = """You are a strict fact-checking critic performing natural
 language inference (NLI) grounding.
@@ -52,7 +54,7 @@ class CriticParseError(Exception):
 class CriticVerdict:
     claim: str
     source_url: str
-    verdict: Verdict
+    verdict: str  # "VERIFIED" | "CONTRADICTED" | "UNSUPPORTED" -- matches schema.py's plain str field
     confidence_score: float
 
 

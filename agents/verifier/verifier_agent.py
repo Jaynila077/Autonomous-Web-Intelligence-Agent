@@ -12,10 +12,11 @@ survives, a retry flag is set so the orchestrator can re-fetch data.
 import logging
 from typing import List
 
+from schemas.state import AgentState, ExtractedContent, VerifiedClaim
+
 from .claim_extractor import extract_atomic_claims
 from .critic import CriticParseError, audit_claim, to_verified_claim
 from .llm_client import LLMClient
-from .models import AgentState, ExtractedContent, VerifiedClaim
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,8 @@ class VerifierAgent:
         successful_sources = self._filter_successful(state.extracted_data)
 
         if not successful_sources:
-            state.retry = True
-            state.retry_reason = "No successfully extracted sources to verify."
+            logger.warning("No successfully extracted sources to verify (query_id=%s).", state.query_id)
+            state.retry_count += 1
             return state
 
         new_verified: List[VerifiedClaim] = []
@@ -46,7 +47,7 @@ class VerifierAgent:
             atomic_claims = extract_atomic_claims(self._llm, source)
             for claim in atomic_claims:
                 try:
-                    verdict = audit_claim(self._llm, claim, source_chunk=source.raw_markdown)
+                    verdict = audit_claim(self._llm, claim, source_chunk=source.content_markdown)
                 except CriticParseError:
                     logger.warning("Skipping claim (critic parse failure): %s", claim.text)
                     continue
@@ -59,11 +60,11 @@ class VerifierAgent:
         state.verified_claims.extend(new_verified)
 
         if len(new_verified) < self._min_verified_claims:
-            state.retry = True
-            state.retry_reason = (
-                f"Only {len(new_verified)} claim(s) verified "
-                f"(minimum required: {self._min_verified_claims})."
+            logger.warning(
+                "Only %d claim(s) verified for query_id=%s (minimum required: %d).",
+                len(new_verified), state.query_id, self._min_verified_claims,
             )
+            state.retry_count += 1
 
         return state
 
