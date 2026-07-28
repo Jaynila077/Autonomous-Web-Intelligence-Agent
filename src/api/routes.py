@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-from src.core.orchestrator import build_awis_agent
+from src.core.main import build_awis_agent
 
 router = APIRouter()
 
