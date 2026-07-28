@@ -18,6 +18,30 @@ from yt_dlp import YoutubeDL
 from ddgs import DDGS
 from feedsearch_crawler import search as search_feeds
 
+
+
+
+import base64
+import html
+import io
+import os
+import re
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+import feedparser
+import pdfplumber
+import requests
+import trafilatura
+from ddgs import DDGS
+from dotenv import load_dotenv
+from exa_py import Exa
+from langchain_core.tools import tool
+from tavily import TavilyClient
+from usp.tree import sitemap_tree_for_homepage
+
+
+
 #example
 @tool
 def search_arxiv(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
@@ -536,3 +560,660 @@ def search_site_content(domain: str, query: str, max_results: int = 3) -> List[D
         }
         for result in raw_results
     ]
+
+
+
+
+# ---------------------------------------------------------------------------
+# Clinical trials (health/clinical_scraper.py)
+# ---------------------------------------------------------------------------
+
+@tool
+def search_clinical_trials(search_term: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Searches ClinicalTrials.gov for studies matching a medical/clinical term.
+    Use this tool FIRST when a request needs information on active, completed,
+    or recruiting clinical trials for a drug, condition, or intervention,
+    since it queries the official registry directly rather than a general
+    web search.
+
+    Args:
+        search_term: The condition, drug, or intervention to search for
+            (e.g. 'mRNA vaccine').
+        limit: Maximum number of studies to retrieve (default is 5).
+
+    Returns:
+        List of dictionaries containing each study's 'NCT_ID', 'Title',
+        'Status', and 'Summary'. Returns a list with a single 'error'
+        dictionary if the request failed.
+    """
+    url = "https://clinicaltrials.gov/api/v2/studies"
+    params = {"query.term": search_term, "pageSize": limit, "format": "json"}
+
+    try:
+        response = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+    except requests.exceptions.RequestException as e:
+        return [{"error": f"Error fetching data: {str(e)}"}]
+
+    extracted_trials = []
+    for study in data.get("studies", []):
+        protocol = study.get("protocolSection", {})
+        identification = protocol.get("identificationModule", {})
+        status = protocol.get("statusModule", {})
+        description = protocol.get("descriptionModule", {})
+
+        extracted_trials.append({
+            "NCT_ID": identification.get("nctId", "N/A"),
+            "Title": identification.get("briefTitle", "N/A"),
+            "Status": status.get("overallStatus", "N/A"),
+            "Summary": description.get("briefSummary", "No summary provided."),
+        })
+
+    return extracted_trials
+
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# Exa semantic search (blog/test_exa.py)
+# ---------------------------------------------------------------------------
+
+@tool
+def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[str, Any]]:
+    """
+    Runs a neural/semantic web search via the Exa API and returns extracted
+    highlight snippets per result. Use this tool FIRST when a request is
+    phrased as a rich, descriptive prompt (rather than a short keyword
+    query) and needs conceptually-matched pages rather than plain keyword
+    matches -- Exa's embeddings-based search is stronger than a keyword
+    engine for this kind of query.
+
+    Requires the EXA_API_KEY environment variable to be set.
+
+    Args:
+        semantic_query: A descriptive natural-language query or prompt
+            (e.g. 'a highly detailed, technical engineering blog post about
+            bypassing Cloudflare for web scraping').
+        max_links: Maximum number of results to retrieve (default is 2).
+
+    Returns:
+        List of dictionaries containing each result's 'title', 'url', and
+        'highlights' (list of extracted highlight strings). Returns a list
+        with a single 'error' dictionary if the API key is missing or the
+        call failed.
+    """
+    api_key = os.environ.get("EXA_API_KEY")
+    if not api_key:
+        return [{"error": "EXA_API_KEY environment variable is not set."}]
+
+    try:
+        exa = Exa(api_key=api_key)
+        response = exa.search(
+            semantic_query,
+            type="auto",
+            num_results=max_links,
+            contents={"highlights": True},
+        )
+        results = response.results
+    except Exception as e:
+        return [{"error": f"Exa API call failed: {str(e)}"}]
+
+    if not results:
+        return [{"error": "No semantic matches found."}]
+
+    return [
+        {
+            "title": article.title,
+            "url": article.url,
+            "highlights": [h.replace("\n", " ").strip() for h in article.highlights] if article.highlights else [],
+        }
+        for article in results
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Tavily (Tavily/main.py)
+# ---------------------------------------------------------------------------
+
+def _get_tavily_client() -> Optional[TavilyClient]:
+    api_key = os.environ.get("TAVILY_API_KEY")
+    if not api_key:
+        return None
+    return TavilyClient(api_key=api_key)
+
+
+@tool
+def search_tavily(
+    query: str,
+    max_results: int = 3,
+    search_depth: str = "basic",
+    topic: str = "general",
+    include_answer: bool = False,
+    include_domains: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Runs a structured web search via the Tavily API, with support for
+    deeper crawling, topic filtering, domain allowlisting, and an optional
+    AI-synthesized summary answer. Use this tool FIRST when a request needs
+    higher-quality, relevance-scored results than a plain search engine,
+    especially for news/finance topics or when restricting to trusted
+    domains (e.g. 'nature.com', 'sciencedaily.com').
+
+    Requires the TAVILY_API_KEY environment variable to be set.
+
+    Args:
+        query: The search query.
+        max_results: Maximum number of results to retrieve (default is 3).
+        search_depth: 'basic' (fast) or 'advanced' (deeper, higher quality,
+            default is 'basic').
+        topic: 'general', 'news', or 'finance' (default is 'general').
+        include_answer: Whether to also generate a synthesized summary
+            answer inside the response (default is False).
+        include_domains: Optional list of domains to restrict results to.
+
+    Returns:
+        Dictionary containing 'answer' (synthesized summary, or None if
+        include_answer is False) and 'results' (list of dictionaries with
+        'title', 'url', 'score', and 'content'). Returns a dictionary with
+        a single 'error' key if the API key is missing or the call failed.
+    """
+    client = _get_tavily_client()
+    if client is None:
+        return {"error": "TAVILY_API_KEY environment variable is not set."}
+
+    try:
+        response = client.search(
+            query=query,
+            max_results=max_results,
+            search_depth=search_depth,
+            topic=topic,
+            include_answer=include_answer,
+            include_domains=include_domains,
+        )
+    except Exception as e:
+        return {"error": f"Tavily search failed: {str(e)}"}
+
+    return {
+        "answer": response.get("answer"),
+        "results": [
+            {
+                "title": r.get("title"),
+                "url": r.get("url"),
+                "score": r.get("score"),
+                "content": r.get("content"),
+            }
+            for r in response.get("results", [])
+        ],
+    }
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# OSINT multi-source adapters (osint_pipeline/adapters.py) --
+# each platform exposed as its own tool, matching the file's per-source design.
+# ---------------------------------------------------------------------------
+
+def _strip_html_tags(raw: str) -> str:
+    text = re.sub(r"<script.*?</script>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<style.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+@tool
+def search_stackexchange(query: str, site: str = "stackoverflow", limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches a Stack Exchange site (e.g. Stack Overflow) for questions
+    matching a query, including full question body text. Use this tool
+    FIRST for technical/programming questions where community Q&A content
+    (with an answered/vote-count relevance signal) is more useful than a
+    general web search.
+
+    Optional STACKEXCHANGE_API_KEY environment variable raises the request
+    quota but is not required for low-volume use.
+
+    Args:
+        query: The search query.
+        site: The Stack Exchange site to search (default is 'stackoverflow').
+        limit: Maximum number of questions to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each question's 'title', 'url',
+        'author', 'created_at', 'score', 'body', 'answer_count',
+        'is_answered', and 'tags'. Returns a list with a single 'error'
+        dictionary if the request failed.
+    """
+    params = {
+        "q": query,
+        "site": site,
+        "pagesize": limit,
+        "order": "desc",
+        "sort": "relevance",
+        "filter": "withbody",
+    }
+    api_key = os.environ.get("STACKEXCHANGE_API_KEY")
+    if api_key:
+        params["key"] = api_key
+
+    try:
+        resp = requests.get("https://api.stackexchange.com/2.3/search/advanced", params=params, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    return [
+        {
+            "title": _strip_html_tags(item.get("title", "")),
+            "url": item.get("link", ""),
+            "author": item.get("owner", {}).get("display_name"),
+            "created_at": str(item.get("creation_date")),
+            "score": item.get("score"),
+            "body": _strip_html_tags(item.get("body", "")),
+            "answer_count": item.get("answer_count"),
+            "is_answered": item.get("is_answered"),
+            "tags": item.get("tags"),
+        }
+        for item in data.get("items", [])
+    ]
+
+
+@tool
+def search_github_repos(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches GitHub repositories matching a query, sorted by star count.
+    Use this tool FIRST when a request needs open-source projects, tools,
+    or code examples related to a topic.
+
+    Optional GITHUB_TOKEN environment variable raises the unauthenticated
+    rate limit but is not required.
+
+    Args:
+        query: The search query (supports GitHub search qualifiers).
+        limit: Maximum number of repositories to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each repo's 'full_name', 'url',
+        'owner', 'created_at', 'stars', 'description', 'language', and
+        'forks'. Returns a list with a single 'error' dictionary if the
+        request failed.
+    """
+    params = {"q": query, "per_page": limit, "sort": "stars", "order": "desc"}
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        resp = requests.get("https://api.github.com/search/repositories", params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    return [
+        {
+            "full_name": item.get("full_name", ""),
+            "url": item.get("html_url", ""),
+            "owner": item.get("owner", {}).get("login"),
+            "created_at": item.get("created_at"),
+            "stars": item.get("stargazers_count"),
+            "description": item.get("description"),
+            "language": item.get("language"),
+            "forks": item.get("forks_count"),
+        }
+        for item in data.get("items", [])
+    ]
+
+
+@tool
+def search_mastodon(query: str, instance: str = "mastodon.social", limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches a single Mastodon instance's public statuses for a query. Use
+    this tool FIRST for Mastodon/fediverse chatter on a topic. Note that
+    federated search is instance-scoped -- this covers what the chosen
+    instance knows about, not the entire fediverse.
+
+    Args:
+        query: The search query.
+        instance: The Mastodon instance hostname to search (default is
+            'mastodon.social').
+        limit: Maximum number of statuses to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each status's 'preview' (first 80
+        chars of stripped content), 'url', 'author', 'created_at',
+        'favourites', 'content' (full stripped text), and 'reblogs'.
+        Returns a list with a single 'error' dictionary if the request
+        failed.
+    """
+    try:
+        resp = requests.get(
+            f"https://{instance}/api/v2/search",
+            params={"q": query, "type": "statuses", "limit": limit},
+            timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    results = []
+    for status in data.get("statuses", []):
+        content = _strip_html_tags(status.get("content", ""))
+        account = status.get("account", {})
+        results.append({
+            "preview": content[:80],
+            "url": status.get("url", ""),
+            "author": account.get("acct"),
+            "created_at": status.get("created_at"),
+            "favourites": status.get("favourites_count"),
+            "content": content,
+            "reblogs": status.get("reblogs_count"),
+        })
+
+    return results
+
+
+@tool
+def search_reddit(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches Reddit for submissions matching a query, via the public
+    `.json` endpoint. Use this tool FIRST for Reddit discussion/opinion on
+    a topic. Note that Reddit's public endpoint intermittently 403s
+    unauthenticated traffic; if that happens, treat this source as
+    temporarily unavailable rather than retrying repeatedly.
+
+    Args:
+        query: The search query.
+        limit: Maximum number of submissions to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each submission's 'title', 'url',
+        'author', 'created_utc', 'score', 'selftext', 'subreddit', and
+        'num_comments'. Returns a list with a single 'error' dictionary if
+        the request failed (e.g. blocked with a 403).
+    """
+    headers = {"User-Agent": "osint-search-tools/0.1"}
+    try:
+        resp = requests.get(
+            "https://www.reddit.com/search.json",
+            params={"q": query, "limit": limit, "sort": "relevance"},
+            headers=headers,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    results = []
+    for child in data.get("data", {}).get("children", []):
+        d = child.get("data", {})
+        results.append({
+            "title": d.get("title", ""),
+            "url": "https://www.reddit.com" + d.get("permalink", ""),
+            "author": d.get("author"),
+            "created_utc": str(d.get("created_utc")),
+            "score": d.get("score"),
+            "selftext": d.get("selftext"),
+            "subreddit": d.get("subreddit"),
+            "num_comments": d.get("num_comments"),
+        })
+
+    return results
+
+
+@tool
+def search_lemmy(query: str, instance: str = "lemmy.world", limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches a single Lemmy instance for posts matching a query. Use this
+    tool FIRST for Lemmy/fediverse discussion on a topic, especially
+    tech/open-source/Linux communities where Lemmy activity is dense. Same
+    federation caveat as Mastodon: one instance's search isn't all of
+    Lemmy.
+
+    Args:
+        query: The search query.
+        instance: The Lemmy instance hostname to search (default is
+            'lemmy.world').
+        limit: Maximum number of posts to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each post's 'title', 'url'
+        (ActivityPub canonical link), 'author', 'created_at', 'score',
+        'body', 'community', and 'num_comments'. Returns a list with a
+        single 'error' dictionary if the request failed.
+    """
+    headers = {"User-Agent": "osint-search-tools/0.1"}
+    try:
+        resp = requests.get(
+            f"https://{instance}/api/v3/search",
+            params={"q": query, "type_": "Posts", "sort": "TopAll", "limit": limit},
+            headers=headers,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    results = []
+    for item in data.get("posts", []):
+        post = item.get("post", {})
+        counts = item.get("counts", {})
+        creator = item.get("creator", {})
+        community = item.get("community", {})
+        results.append({
+            "title": post.get("name", ""),
+            "url": post.get("ap_id", ""),
+            "author": creator.get("name"),
+            "created_at": post.get("published"),
+            "score": counts.get("score"),
+            "body": post.get("body"),
+            "community": community.get("name"),
+            "num_comments": counts.get("comments"),
+        })
+
+    return results
+
+
+@tool
+def search_tumblr(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches Tumblr by tag (Tumblr's free API has no full-text search, so
+    the query is collapsed to a single tag). Use this tool FIRST for
+    Tumblr fandom/creative-community content on a topic that maps
+    reasonably to a single tag word.
+
+    Requires the TUMBLR_API_KEY environment variable to be set.
+
+    Args:
+        query: The search topic; spaces are stripped to form a tag (e.g.
+            'web scraping' -> 'webscraping').
+        limit: Maximum number of posts to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each post's 'title' (first 80
+        chars of stripped summary/caption), 'url', 'author' (blog name),
+        'created_at', 'notes', 'tags', and 'type'. Returns a list with a
+        single 'error' dictionary if the API key is missing or the request
+        failed.
+    """
+    api_key = os.environ.get("TUMBLR_API_KEY")
+    if not api_key:
+        return [{"error": "TUMBLR_API_KEY environment variable is not set."}]
+
+    tag = query.strip().replace(" ", "")
+    try:
+        resp = requests.get(
+            "https://api.tumblr.com/v2/tagged",
+            params={"tag": tag, "api_key": api_key, "limit": limit},
+            timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    results = []
+    for post in data.get("response", []):
+        body = post.get("summary") or post.get("caption") or ""
+        clean_body = _strip_html_tags(body)
+        results.append({
+            "title": clean_body[:80] or "(untitled post)",
+            "url": post.get("post_url", ""),
+            "author": post.get("blog_name"),
+            "created_at": post.get("date"),
+            "notes": post.get("note_count"),
+            "tags": post.get("tags"),
+            "type": post.get("type"),
+        })
+
+    return results
+
+
+@tool
+def search_vk(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches VKontakte (VK) newsfeed posts matching a query. Use this tool
+    FIRST when Russian/Eastern European language or geographic coverage is
+    needed, which most other configured sources lack.
+
+    Requires the VK_ACCESS_TOKEN environment variable to be set (register
+    an app at vk.com/apps?act=manage and generate a token with the 'wall'
+    scope via the Implicit Flow).
+
+    Args:
+        query: The search query.
+        limit: Maximum number of posts to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each post's 'title' (first 80
+        chars of text), 'url', 'author' (owner id), 'created_at', 'likes',
+        'reposts', and 'comments'. Returns a list with a single 'error'
+        dictionary if the token is missing, the request failed, or the VK
+        API returned an error.
+    """
+    access_token = os.environ.get("VK_ACCESS_TOKEN")
+    if not access_token:
+        return [{"error": "VK_ACCESS_TOKEN environment variable is not set."}]
+
+    params = {"q": query, "count": limit, "access_token": access_token, "v": "5.199"}
+
+    try:
+        resp = requests.get("https://api.vk.com/method/newsfeed.search", params=params, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    if "error" in data:
+        err = data["error"]
+        return [{"error": f"VK API error {err.get('error_code')}: {err.get('error_msg')}"}]
+
+    results = []
+    for item in data.get("response", {}).get("items", []):
+        owner_id = item.get("owner_id")
+        post_id = item.get("id")
+        text = item.get("text", "")
+        results.append({
+            "title": text[:80] if text else "(no text)",
+            "url": f"https://vk.com/wall{owner_id}_{post_id}",
+            "author": str(owner_id),
+            "created_at": str(item.get("date")),
+            "likes": item.get("likes", {}).get("count"),
+            "reposts": item.get("reposts", {}).get("count"),
+            "comments": item.get("comments", {}).get("count"),
+        })
+
+    return results
+
+
+@tool
+def search_bluesky(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Searches Bluesky (AT Protocol) posts matching a query via the public
+    endpoint, falling back to an authenticated session if credentials are
+    set and the public endpoint 403s (a known intermittent issue with
+    Bluesky's public infra). Use this tool FIRST for Bluesky chatter on a
+    topic.
+
+    Optional BLUESKY_HANDLE and BLUESKY_APP_PASSWORD environment variables
+    (generate an app password at bsky.app -> Settings -> App Passwords,
+    NOT your main account password) enable the authenticated fallback.
+
+    Args:
+        query: The search query.
+        limit: Maximum number of posts to retrieve (default is 10).
+
+    Returns:
+        List of dictionaries containing each post's 'title' (first 80
+        chars of text), 'url', 'author' (handle), 'created_at', 'likes',
+        'reposts', 'replies', and 'text'. Returns a list with a single
+        'error' dictionary if both the public and authenticated attempts
+        failed.
+    """
+    headers = {"User-Agent": "osint-search-tools/0.1"}
+    params = {"q": query, "limit": limit}
+
+    try:
+        resp = requests.get(
+            "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
+            params=params, headers=headers, timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as public_err:
+        handle = os.environ.get("BLUESKY_HANDLE")
+        app_password = os.environ.get("BLUESKY_APP_PASSWORD")
+        if not (handle and app_password):
+            return [{"error": f"public endpoint failed ({str(public_err)}) and no BLUESKY_HANDLE/APP_PASSWORD set for authed fallback"}]
+
+        try:
+            session_resp = requests.post(
+                "https://bsky.social/xrpc/com.atproto.server.createSession",
+                json={"identifier": handle, "password": app_password},
+                timeout=DEFAULT_TIMEOUT,
+            )
+            session_resp.raise_for_status()
+            token = session_resp.json().get("accessJwt")
+
+            auth_headers = {**headers, "Authorization": f"Bearer {token}"}
+            resp = requests.get(
+                "https://bsky.social/xrpc/app.bsky.feed.searchPosts",
+                params=params, headers=auth_headers, timeout=DEFAULT_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as authed_err:
+            return [{"error": str(authed_err)}]
+
+    results = []
+    for post in data.get("posts", []):
+        author = post.get("author", {})
+        record = post.get("record", {})
+        handle = author.get("handle", "")
+        uri = post.get("uri", "")
+        rkey = uri.rsplit("/", 1)[-1] if uri else ""
+        text = record.get("text", "")
+
+        results.append({
+            "title": text[:80] if text else "(no text)",
+            "url": f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else "",
+            "author": handle,
+            "created_at": record.get("createdAt"),
+            "likes": post.get("likeCount"),
+            "reposts": post.get("repostCount"),
+            "replies": post.get("replyCount"),
+            "text": text,
+        })
+
+    return results
