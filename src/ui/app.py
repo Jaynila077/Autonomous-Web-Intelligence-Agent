@@ -52,7 +52,6 @@ elif st.session_state.page == "result_page":
     st.title("Intelligence Briefing")
     st.caption(f"**Active Directive:** {st.session_state.current_query}")
 
-    # Back button to submit another query
     if st.button("← New Research Query"):
         st.session_state.page = "query_page"
         st.session_state.report_markdown = ""
@@ -78,6 +77,5 @@ elif st.session_state.page == "result_page":
                 status.update(label="Pipeline timed out.", state="error")
                 st.error("Report generation took too long. Check your backend terminal for agent errors.")
 
-    # Render Markdown Report
     if st.session_state.report_markdown:
         st.markdown(st.session_state.report_markdown)
