@@ -6,7 +6,6 @@ API_BASE_URL = "http://localhost:8000/api/v1"
 
 st.set_page_config(page_title="AWIS OSINT Dashboard", layout="wide")
 
-# Initialize navigation state
 if "page" not in st.session_state:
     st.session_state.page = "query_page"
 if "current_query" not in st.session_state:
@@ -32,7 +31,6 @@ if st.session_state.page == "query_page":
             st.warning("Please enter a valid research query.")
         else:
             try:
-                # 1. Send query to FastAPI
                 response = requests.post(
                     f"{API_BASE_URL}/query", 
                     json={"query": query_input},
@@ -40,7 +38,6 @@ if st.session_state.page == "query_page":
                 )
                 response.raise_for_status()
 
-                # 2. Store query & switch to loading view
                 st.session_state.current_query = query_input
                 st.session_state.page = "result_page"
                 st.rerun()
