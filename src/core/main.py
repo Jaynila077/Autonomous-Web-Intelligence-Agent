@@ -18,7 +18,7 @@ def build_awis_agent():
     os.makedirs(vfs_path, exist_ok=True)
     
     llm = ChatOpenAI(
-        model="meta-llama/llama-3.3-70b-instruct",
+        model="openrouter/free",
         openai_api_key=os.getenv("OPENROUTER_API_KEY"),
         openai_api_base="https://openrouter.ai/api/v1",
         temperature=0.1,

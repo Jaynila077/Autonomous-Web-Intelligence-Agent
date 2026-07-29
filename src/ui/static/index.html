@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWIS — Case File Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+<style>
+  :root{
+    --paper:      #efe9dc;
+    --paper-dark: #e4dcc9;
+    --ink:        #201d18;
+    --ink-soft:   #55503f;
+    --line:       #c9bfa4;
+    --stamp-red:  #a13e2f;
+    --signal:     #2f6e60;
+    --amber:      #b8842c;
+    --card:       #f7f3e8;
+    --shadow:     rgba(32,29,24,0.18);
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:
+      radial-gradient(ellipse at top left, rgba(255,255,255,0.4), transparent 55%),
+      var(--paper);
+    color:var(--ink);
+    font-family:'Source Serif 4', serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* faint paper grain */
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    pointer-events:none;
+    opacity:0.05;
+    background-image:
+      repeating-linear-gradient(0deg, #000 0, #000 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:multiply;
+  }
+
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .stamp-font{ font-family:'Special Elite', monospace; }
+
+  a{ color:inherit; }
+
+  /* ---------- Header ---------- */
+  header{
+    border-bottom:2px solid var(--ink);
+    padding:22px clamp(18px,4vw,48px) 16px;
+    display:flex; align-items:flex-end; justify-content:space-between;
+    flex-wrap:wrap; gap:14px;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand-mark{
+    width:46px; height:46px; border:2px solid var(--ink); border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Special Elite', monospace; font-size:20px; letter-spacing:1px;
+    flex:none;
+    position:relative;
+  }
+  .brand-mark::after{
+    content:"";
+    position:absolute; inset:-6px;
+    border:1px dashed var(--ink-soft);
+    border-radius:50%;
+    opacity:0.5;
+  }
+  .brand h1{
+    font-family:'Special Elite', monospace;
+    font-size:clamp(20px,2.6vw,28px);
+    letter-spacing:0.5px;
+    margin:0;
+    text-transform:uppercase;
+  }
+  .brand .sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-top:2px;
+  }
+  .conn-block{ text-align:right; }
+  .conn-row{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    display:flex; align-items:center; gap:8px; justify-content:flex-end;
+    color:var(--ink-soft);
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--stamp-red); flex:none; }
+  .dot.live{ background:var(--signal); box-shadow:0 0 0 3px rgba(47,110,96,0.18); }
+  .api-input{
+    margin-top:6px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    background:transparent;
+    border:1px solid var(--line);
+    padding:5px 8px;
+    color:var(--ink);
+    width:250px;
+    border-radius:2px;
+  }
+  .api-input:focus{ outline:none; border-color:var(--ink); }
+
+  /* ---------- Layout ---------- */
+  .stage{
+    display:grid;
+    grid-template-columns:340px 1fr;
+    gap:0;
+    align-items:start;
+  }
+  @media (max-width:880px){
+    .stage{ grid-template-columns:1fr; }
+  }
+
+  .rail{
+    border-right:2px solid var(--ink);
+    padding:26px clamp(16px,3vw,30px) 40px;
+    min-height:70vh;
+  }
+  @media (max-width:880px){
+    .rail{ border-right:none; border-bottom:2px solid var(--ink); }
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin:0 0 8px;
+  }
+
+  textarea#queryInput{
+    width:100%;
+    resize:vertical;
+    min-height:96px;
+    font-family:'Source Serif 4', serif;
+    font-size:15.5px;
+    line-height:1.5;
+    padding:12px 13px;
+    background:var(--card);
+    border:1px solid var(--ink);
+    color:var(--ink);
+    border-radius:2px;
+  }
+  textarea#queryInput:focus{ outline:none; box-shadow:inset 0 0 0 1px var(--ink); }
+  textarea#queryInput::placeholder{ color:#8f8874; font-style:italic; }
+
+  .btn{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    border:1.5px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    padding:11px 16px;
+    cursor:pointer;
+    border-radius:2px;
+    width:100%;
+    margin-top:12px;
+    transition:transform .12s ease, background .15s ease;
+  }
+  .btn:hover{ background:#3a352a; }
+  .btn:active{ transform:translateY(1px); }
+  .btn:disabled{ opacity:0.45; cursor:not-allowed; }
+  .btn.ghost{
+    background:transparent; color:var(--ink);
+  }
+  .btn.ghost:hover{ background:rgba(32,29,24,0.06); }
+
+  .rail-section{ margin-top:30px; }
+
+  /* Pipeline / case checklist */
+  .pipe{ list-style:none; margin:6px 0 0; padding:0; }
+  .pipe li{
+    display:flex; align-items:flex-start; gap:11px;
+    padding:11px 0;
+    border-bottom:1px dashed var(--line);
+  }
+  .pipe li:last-child{ border-bottom:none; }
+  .badge{
+    flex:none; width:22px; height:22px; border-radius:50%;
+    border:1.5px solid var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono', monospace; font-size:11px;
+    margin-top:1px;
+    background:var(--card);
+  }
+  .badge.done{ background:var(--signal); border-color:var(--signal); color:#fff; }
+  .badge.active{ background:var(--amber); border-color:var(--amber); color:#fff; animation:pulse 1.4s infinite; }
+  @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(184,132,44,0.4);} 50%{ box-shadow:0 0 0 6px rgba(184,132,44,0);} }
+
+  .pipe-name{ font-weight:600; font-size:14.5px; }
+  .pipe-desc{ font-size:12.5px; color:var(--ink-soft); margin-top:1px; line-height:1.4; }
+  .pipe-status{
+    margin-left:auto; font-family:'IBM Plex Mono', monospace; font-size:10px;
+    text-transform:uppercase; color:var(--ink-soft); white-space:nowrap; padding-top:3px;
+  }
+
+  /* Toolkit chips */
+  .chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .chip{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px;
+    border:1px solid var(--ink-soft); color:var(--ink-soft);
+    padding:5px 9px; border-radius:20px;
+  }
+
+  /* Console log */
+  .console{
+    margin-top:30px;
+    background:#1c1a15;
+    color:#d8d2bf;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    line-height:1.7;
+    border-radius:3px;
+    padding:13px 14px;
+    max-height:190px;
+    overflow-y:auto;
+  }
+  .console .l{ opacity:0; animation:fadein .3s forwards; }
+  .console .l .t{ color:#7d9b8d; margin-right:8px; }
+  @keyframes fadein{ to{ opacity:1; } }
+
+  /* ---------- Main / report panel ---------- */
+  main{
+    padding:34px clamp(18px,4vw,56px) 60px;
+  }
+
+  .brief-head{
+    border:1.5px solid var(--ink);
+    background:var(--card);
+    padding:20px 24px;
+    position:relative;
+    box-shadow:4px 4px 0 var(--shadow);
+  }
+  .brief-head .row{
+    display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    font-family:'IBM Plex Mono', monospace; font-size:11px; text-transform:uppercase;
+    color:var(--ink-soft); letter-spacing:0.06em;
+  }
+  .brief-head h2{
+    font-family:'Special Elite', monospace;
+    margin:10px 0 4px;
+    font-size:clamp(18px,2.4vw,24px);
+    text-transform:uppercase;
+  }
+  .stamp{
+    position:absolute; top:14px; right:20px;
+    font-family:'Special Elite', monospace;
+    font-size:13px; letter-spacing:0.12em;
+    color:var(--stamp-red);
+    border:2.5px solid var(--stamp-red);
+    padding:5px 10px;
+    border-radius:4px;
+    transform:rotate(6deg);
+    opacity:0.9;
+  }
+  .stamp.verified{ color:var(--signal); border-color:var(--signal); transform:rotate(-4deg); }
+
+  .report-body{
+    margin-top:22px;
+    border:1px solid var(--line);
+    background:var(--card);
+    padding:clamp(20px,4vw,42px);
+    min-height:320px;
+    box-shadow:4px 4px 0 var(--shadow);
+  }
+  .report-body h1, .report-body h2, .report-body h3{
+    font-family:'Special Elite', monospace;
+    line-height:1.3;
+  }
+  .report-body h1{ font-size:22px; border-bottom:2px solid var(--ink); padding-bottom:8px; }
+  .report-body h2{ font-size:18px; margin-top:28px; }
+  .report-body h3{ font-size:15px; margin-top:20px; }
+  .report-body p{ line-height:1.75; font-size:15.5px; }
+  .report-body a{ color:var(--signal); text-decoration-thickness:1px; }
+  .report-body code{ background:var(--paper-dark); padding:1px 5px; border-radius:3px; font-family:'IBM Plex Mono', monospace; font-size:0.85em; }
+  .report-body pre{ background:#1c1a15; color:#e5dfcc; padding:14px; border-radius:4px; overflow-x:auto; }
+  .report-body blockquote{
+    border-left:3px solid var(--stamp-red);
+    margin:16px 0; padding:2px 0 2px 16px; color:var(--ink-soft); font-style:italic;
+  }
+  .report-body ul, .report-body ol{ line-height:1.7; font-size:15.5px; }
+  .report-body hr{ border:none; border-top:1px dashed var(--line); margin:26px 0; }
+
+  .empty-state{
+    text-align:center;
+    padding:60px 20px;
+    color:var(--ink-soft);
+  }
+  .empty-state .glyph{ font-size:38px; margin-bottom:10px; opacity:0.6; }
+  .empty-state h3{ font-family:'Special Elite', monospace; text-transform:uppercase; font-size:15px; margin:0 0 8px; letter-spacing:0.06em; }
+  .empty-state p{ font-size:13.5px; max-width:380px; margin:0 auto; line-height:1.6; }
+
+  .foot-note{
+    margin-top:16px; font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--ink-soft);
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+
+  .toast{
+    position:fixed; bottom:22px; right:22px;
+    background:var(--ink); color:var(--paper);
+    font-family:'IBM Plex Mono', monospace; font-size:12px;
+    padding:11px 16px; border-radius:3px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.25);
+    opacity:0; transform:translateY(8px);
+    transition:all .25s ease;
+    pointer-events:none;
+    max-width:320px;
+  }
+  .toast.show{ opacity:1; transform:translateY(0); }
+  .toast.err{ background:var(--stamp-red); }
+
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">A</div>
+    <div>
+      <h1>AWIS Case Console</h1>
+      <div class="sub">Autonomous Web Intelligence System · OSINT Pipeline v2.0</div>
+    </div>
+  </div>
+  <div class="conn-block">
+    <div class="conn-row"><span class="dot" id="connDot"></span><span id="connText">checking backend…</span></div>
+    <input id="apiBase" class="api-input" type="text" value="http://localhost:8000/api/v1" spellcheck="false">
+  </div>
+</header>
+
+<div class="stage">
+  <!-- LEFT RAIL -->
+  <aside class="rail">
+    <p class="eyebrow">New Tasking</p>
+    <textarea id="queryInput" placeholder="e.g. Investigate solid-state battery supply chain disruptions in academic literature…"></textarea>
+    <button class="btn" id="submitBtn">Dispatch Query</button>
+    <button class="btn ghost" id="fetchBtn">Check for Report</button>
+
+    <div class="rail-section">
+      <p class="eyebrow">Agent Pipeline</p>
+      <ul class="pipe" id="pipeList">
+        <li data-stage="0">
+          <div class="badge" id="badge-0">1</div>
+          <div>
+            <div class="pipe-name">Planner</div>
+            <div class="pipe-desc">Breaks the query into a step-by-step intelligence plan.</div>
+          </div>
+          <div class="pipe-status" id="status-0">standby</div>
+        </li>
+        <li data-stage="1">
+          <div class="badge" id="badge-1">2</div>
+          <div>
+            <div class="pipe-name">Researcher</div>
+            <div class="pipe-desc">Runs search &amp; extraction tools, saves raw findings to the workspace.</div>
+          </div>
+          <div class="pipe-status" id="status-1">standby</div>
+        </li>
+        <li data-stage="2">
+          <div class="badge" id="badge-2">3</div>
+          <div>
+            <div class="pipe-name">Verifier</div>
+            <div class="pipe-desc">Audits saved files for accuracy and evidence grounding.</div>
+          </div>
+          <div class="pipe-status" id="status-2">standby</div>
+        </li>
+        <li data-stage="3">
+          <div class="badge" id="badge-3">4</div>
+          <div>
+            <div class="pipe-name">Reporter</div>
+            <div class="pipe-desc">Synthesizes the verified findings into a final brief.</div>
+          </div>
+          <div class="pipe-status" id="status-3">standby</div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="rail-section">
+      <p class="eyebrow">Toolkit On File</p>
+      <div class="chip-row">
+        <span class="chip">search_arxiv</span>
+        <span class="chip">extract_pdf_with_pdfplumber</span>
+      </div>
+    </div>
+
+    <div class="console" id="console"></div>
+  </aside>
+
+  <!-- MAIN -->
+  <main>
+    <div class="brief-head">
+      <div class="stamp" id="stampEl">PENDING</div>
+      <div class="row">
+        <span id="briefQuery">NO ACTIVE TASKING</span>
+        <span id="briefDate">—</span>
+      </div>
+      <h2>Intelligence Brief</h2>
+      <div class="row"><span>Source: workspace/final_report.md</span><span id="briefTools">Tools: arXiv · PDF Extractor</span></div>
+    </div>
+
+    <div class="report-body" id="reportBody">
+      <div class="empty-state">
+        <div class="glyph">🗂</div>
+        <h3>No Brief on File Yet</h3>
+        <p>Dispatch a query on the left, or check for a report already sitting in the workspace. The console below the pipeline will log activity as it happens.</p>
+      </div>
+    </div>
+
+    <div class="foot-note">
+      <span>AWIS DeepAgents Pipeline — FastAPI backend</span>
+      <span id="pollNote"></span>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const apiBaseInput = $('apiBase');
+const consoleEl = $('console');
+const toastEl = $('toast');
+let pollTimer = null;
+
+function apiBase(){ return apiBaseInput.value.replace(/\/$/, ''); }
+
+function log(msg){
+  const line = document.createElement('div');
+  line.className = 'l';
+  const time = new Date().toLocaleTimeString([], {hour12:false});
+  line.innerHTML = `<span class="t">${time}</span>${msg}`;
+  consoleEl.appendChild(line);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+  while (consoleEl.children.length > 40) consoleEl.removeChild(consoleEl.firstChild);
+}
+
+function toast(msg, isErr){
+  toastEl.textContent = msg;
+  toastEl.className = 'toast show' + (isErr ? ' err' : '');
+  setTimeout(()=> toastEl.classList.remove('show'), 3200);
+}
+
+function setStage(stageIdx, state){
+  // state: 'standby' | 'active' | 'done'
+  const badge = $('badge-' + stageIdx);
+  const status = $('status-' + stageIdx);
+  badge.classList.remove('active','done');
+  if(state === 'active'){ badge.classList.add('active'); status.textContent = 'running'; }
+  else if(state === 'done'){ badge.classList.add('done'); badge.textContent = '✓'; status.textContent = 'complete'; }
+  else { status.textContent = 'standby'; }
+}
+
+function resetPipeline(){
+  for(let i=0;i<4;i++){
+    const b = $('badge-'+i); b.textContent = i+1; b.classList.remove('active','done');
+    $('status-'+i).textContent = 'standby';
+  }
+}
+
+async function checkHealth(){
+  try{
+    const res = await fetch(apiBase().replace('/api/v1','') + '/', {method:'GET'});
+    if(res.ok){
+      $('connDot').classList.add('live');
+      $('connText').textContent = 'backend reachable';
+    } else {
+      throw new Error('bad status');
+    }
+  }catch(e){
+    $('connDot').classList.remove('live');
+    $('connText').textContent = 'backend unreachable — check API base';
+  }
+}
+
+async function dispatchQuery(){
+  const query = $('queryInput').value.trim();
+  if(!query){ toast('Enter a query before dispatching.', true); return; }
+
+  $('submitBtn').disabled = true;
+  resetPipeline();
+  $('stampEl').textContent = 'PENDING';
+  $('stampEl').classList.remove('verified');
+  $('briefQuery').textContent = query.toUpperCase();
+  $('briefDate').textContent = new Date().toLocaleString();
+  $('reportBody').innerHTML = `<div class="empty-state"><div class="glyph">⏳</div><h3>Pipeline Running</h3><p>The agent chain is working the query. This can take a while on free-tier models — the console below is logging activity.</p></div>`;
+
+  log(`Dispatching query → <b>${escapeHtml(query)}</b>`);
+  setStage(0, 'active');
+
+  try{
+    const res = await fetch(apiBase() + '/query', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({query})
+    });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    log(`Backend accepted task: <i>${escapeHtml(data.message || 'processing')}</i>`);
+    toast('Query dispatched to the pipeline.');
+    animateStages();
+    startPolling();
+  }catch(e){
+    log(`<span style="color:#c97a6d">Dispatch failed: ${escapeHtml(e.message)}</span>`);
+    toast('Could not reach the backend. Is it running?', true);
+    $('submitBtn').disabled = false;
+    setStage(0,'standby');
+  }
+}
+
+function animateStages(){
+  // Purely illustrative progression through the four subagents while we
+  // wait for the backend's background task to finish (no granular status
+  // endpoint is exposed by the API, so this reflects the known pipeline order).
+  const order = [0,1,2,3];
+  let i = 0;
+  setStage(0,'active');
+  const step = () => {
+    if(i > 0) setStage(order[i-1], 'done');
+    if(i < order.length){
+      setStage(order[i], 'active');
+      log(`${['Planner','Researcher','Verifier','Reporter'][order[i]]} stage active…`);
+      i++;
+      setTimeout(step, 4200);
+    }
+  };
+  setTimeout(step, 4200);
+}
+
+function startPolling(){
+  clearInterval(pollTimer);
+  let attempts = 0;
+  $('pollNote').textContent = 'polling for report…';
+  pollTimer = setInterval(async () => {
+    attempts++;
+    const got = await tryFetchReport(true);
+    if(got){
+      clearInterval(pollTimer);
+      $('pollNote').textContent = '';
+      $('submitBtn').disabled = false;
+      for(let s=0;s<4;s++) setStage(s,'done');
+    } else if(attempts >= 40){
+      clearInterval(pollTimer);
+      $('pollNote').textContent = '';
+      $('submitBtn').disabled = false;
+      log('Stopped polling after several attempts — check manually with "Check for Report".');
+    }
+  }, 6000);
+}
+
+async function tryFetchReport(silent){
+  try{
+    const res = await fetch(apiBase() + '/report');
+    if(res.status === 404){
+      if(!silent) toast('No report generated yet.', true);
+      log('No report on file yet (404).');
+      return false;
+    }
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    renderReport(data.report);
+    log('Report retrieved and rendered.');
+    if(!silent) toast('Latest report loaded.');
+    return true;
+  }catch(e){
+    log(`<span style="color:#c97a6d">Fetch failed: ${escapeHtml(e.message)}</span>`);
+    if(!silent) toast('Could not fetch report.', true);
+    return false;
+  }
+}
+
+function renderReport(markdown){
+  const html = (window.marked ? marked.parse(markdown || '') : `<pre>${escapeHtml(markdown||'')}</pre>`);
+  $('reportBody').innerHTML = html;
+  $('stampEl').textContent = 'VERIFIED';
+  $('stampEl').classList.add('verified');
+  if($('briefQuery').textContent === 'NO ACTIVE TASKING'){
+    $('briefQuery').textContent = 'RETRIEVED REPORT';
+  }
+  $('briefDate').textContent = new Date().toLocaleString();
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+$('submitBtn').addEventListener('click', dispatchQuery);
+$('fetchBtn').addEventListener('click', () => tryFetchReport(false));
+apiBaseInput.addEventListener('change', checkHealth);
+$('queryInput').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)) dispatchQuery();
+});
+
+log('Console ready. Set the API base above if the backend isn\'t on localhost:8000.');
+checkHealth();
+</script>
+</body>
+</html>
