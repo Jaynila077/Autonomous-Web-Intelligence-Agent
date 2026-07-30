@@ -1,0 +1,7 @@
+# Agentic AI Architectures
+
+## Definition
+Agentic AI architectures refer to systems designed to exhibit agency, meaning they can make decisions, take actions, and adapt to their environments autonomously. These architectures are characterized by their ability to operate independently, learn from experiences, and interact with other agents or humans in a meaningful way.
+
+## Significance
+The significance of agentic AI architectures lies in their potential to revolutionize various fields by automating complex tasks, enhancing decision-making processes, and providing personalized experiences. They are crucial in developing intelligent systems that can operate in dynamic environments, such as robotics, autonomous vehicles, and smart assistants.

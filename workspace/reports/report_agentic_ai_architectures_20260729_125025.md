@@ -1,0 +1,1 @@
+{"type": "function", "name": "search_github_repos", "parameters": {"query": "Agentic AI Architectures", "limit": "5"}}
