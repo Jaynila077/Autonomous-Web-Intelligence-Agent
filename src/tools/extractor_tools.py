@@ -1,42 +1,33 @@
-from langchain_core.tools import tool
-import pdfplumber
-import requests
 import io
+import os
+import re
+import requests
+import pdfplumber
+from datetime import datetime
+from langchain_core.tools import tool
 
-#example 
+DEFAULT_TIMEOUT = 15
+
 @tool
 def extract_pdf_with_pdfplumber(pdf_url: str, max_pages: int = 10) -> str:
     """
     Downloads a PDF document from a URL into memory and extracts clean raw text page-by-page.
-    Use this tool ONLY AFTER obtaining a direct PDF URL (e.g. from search_arxiv) to read the paper in detail.
-    
-    Args:
-        pdf_url: The direct HTTP/HTTPS link to the PDF file.
-        max_pages: Maximum number of initial pages to extract (default is 10 to avoid token bloat).
-        
-    Returns:
-        Full extracted text formatted in Markdown with page breaks.
+    Use this tool AFTER obtaining a direct PDF URL (e.g. from search_arxiv) to read the paper in detail.
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-
     try:
-        print(f"Downloading PDF from: {pdf_url}...")
-        response = requests.get(pdf_url, headers=headers, timeout=20)
-        
+        response = requests.get(pdf_url, headers=headers, timeout=DEFAULT_TIMEOUT)
         if response.status_code != 200:
             return f"Error: Failed to download PDF. HTTP Status Code {response.status_code}"
 
-        # Stream directly into memory stream (BytesIO) without writing to disk
         pdf_file = io.BytesIO(response.content)
-        
         full_text = []
         with pdfplumber.open(pdf_file) as pdf:
             total_pages = len(pdf.pages)
             pages_to_read = min(total_pages, max_pages)
-            
-            full_text.append(f"# PDF Extraction Report\n**Source URL:** {pdf_url}\n**Total Pages:** {total_pages} (Reading top {pages_to_read})\n\n---\n")
+            full_text.append(f"# PDF Extraction Report\n**Source URL:** {pdf_url}\n**Total Pages:** {total_pages}\n\n---\n")
             
             for page_num in range(pages_to_read):
                 page = pdf.pages[page_num]
@@ -47,12 +38,41 @@ def extract_pdf_with_pdfplumber(pdf_url: str, max_pages: int = 10) -> str:
                     full_text.append(f"### Page {page_num + 1}\n[No extractable text found]\n")
 
         extracted_markdown = "\n".join(full_text)
-        
-        # Sanity length check
         if len(extracted_markdown.strip()) < 150:
             return f"Warning: Extracted content is insufficient (<150 characters). PDF may be scanned/image-based."
 
         return extracted_markdown
-
     except Exception as e:
         return f"Error extracting PDF with pdfplumber: {str(e)}"
+
+
+@tool
+def save_intelligence_report(query_title: str, report_content: str) -> str:
+    """
+    Saves the final synthesized intelligence report to a unique timestamped Markdown file.
+    Always call this tool at the END of the research process to persist results.
+
+    Args:
+        query_title: Short title or topic of the research.
+        report_content: The full markdown report text.
+
+    Returns:
+        Confirmation message with exact file paths.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = re.sub(r'[^a-zA-Z0-9]+', '_', query_title.strip().lower()).strip('_')[:30]
+    filename = f"report_{slug}_{timestamp}.md"
+    
+    reports_dir = os.path.abspath("./workspace/reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    
+    filepath = os.path.join(reports_dir, filename)
+    latest_path = os.path.abspath("./workspace/latest_report.md")
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report_content)
+        
+    with open(latest_path, "w", encoding="utf-8") as f:
+        f.write(report_content)
+        
+    return f"Report successfully saved to '{filepath}' and updated '{latest_path}'."

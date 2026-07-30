@@ -1,0 +1,6 @@
+# Challenges Faced by Deep Agents
+
+1. **Data Dependency**: Deep agents require large amounts of high-quality data for training, which can be difficult to obtain.
+2. **Computational Resources**: Training deep learning models can be resource-intensive, requiring significant computational power and time.
+3. **Interpretability**: The decision-making processes of deep agents can be opaque, making it challenging to understand how they arrive at specific conclusions.
+4. **Ethical Concerns**: The use of deep agents raises ethical issues, such as bias in decision-making and the potential for misuse in surveillance or autonomous weapons.

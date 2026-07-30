@@ -1,0 +1,9 @@
+# Examples of Agentic AI Architectures
+
+1. **Autonomous Vehicles**: Self-driving cars utilize agentic AI architectures to navigate, make decisions, and adapt to changing road conditions without human input.
+
+2. **Robotic Process Automation (RPA)**: RPA systems automate repetitive tasks in business processes, learning from interactions to improve efficiency.
+
+3. **Personal Assistants**: AI assistants like Siri and Alexa use agentic architectures to understand user commands, learn preferences, and interact with other applications.
+
+4. **Game AI**: In video games, agentic AI controls non-player characters (NPCs) that adapt their strategies based on player behavior, providing a dynamic gaming experience.

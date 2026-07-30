@@ -1,0 +1,9 @@
+# Types of Agentic AI
+
+Agentic AI can be categorized into several types based on their operational characteristics and decision-making processes. The main types include:
+
+1. **Reactive Agents**: These agents operate based on predefined rules and respond to specific stimuli in their environment. They do not possess memory or the ability to learn from past experiences. Examples include simple chatbots and basic robotic systems.
+
+2. **Deliberative Agents**: These agents have a more complex architecture, allowing them to plan and reason about their actions. They maintain an internal model of the world and can make decisions based on this model. Examples include autonomous vehicles and advanced robotics.
+
+3. **Hybrid Agents**: Combining features of both reactive and deliberative agents, hybrid agents can respond quickly to immediate stimuli while also planning for future actions. They are often used in complex environments where both speed and strategic planning are essential.

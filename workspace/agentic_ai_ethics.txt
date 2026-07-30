@@ -1,0 +1,17 @@
+# Ethical Considerations in Agentic AI
+
+## 1. Accountability
+- **Description**: Determining who is responsible for the actions of AI systems.
+- **Importance**: Essential for trust and transparency in AI applications.
+
+## 2. Bias and Fairness
+- **Description**: Ensuring AI systems do not perpetuate or amplify biases present in training data.
+- **Importance**: Critical for equitable outcomes in AI applications.
+
+## 3. Privacy
+- **Description**: Protecting user data and ensuring consent in data usage.
+- **Importance**: Vital for maintaining user trust and complying with regulations.
+
+## 4. Safety
+- **Description**: Ensuring AI systems operate safely and do not cause harm.
+- **Importance**: Essential for applications in critical areas like healthcare and transportation.

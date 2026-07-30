@@ -1,65 +1,381 @@
 import sys
 import os
+import re
+import json
+import requests
+from datetime import datetime
+import time
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
+
+import deepagents.middleware.filesystem as fs_mw
+
+# Lightweight VFS System Prompt: Deletes 6,400 tokens of Linux shell manuals
+# while preserving 100% of VFS file saving USP (workspace/raw, workspace/reports)
+fs_mw.FILESYSTEM_SYSTEM_PROMPT = "Workspace VFS Active: Use write_file to save notes, read_file to read notes, and list_dir to view workspace."
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
-from langchain_groq import ChatGroq
-from src.tools.registry import AWIS_TOOL_REGISTRY
 
-def build_awis_agent():
+from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import trim_messages, AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
+from src.tools.registry import (
+    RESEARCHER_TOOLS,
+    VERIFIER_TOOLS,
+    REPORTER_TOOLS,
+    select_dynamic_tools,
+)
+from src.tools.cache_manager import cache_manager
+
+
+# 1. Message Trimmer for context token capping (~4 chars per token)
+message_trimmer = trim_messages(
+    max_tokens=2500,
+    strategy="last",
+    token_counter="approximate",
+    include_system=True,
+    start_on=None,
+)
+
+
+class TokenLoggerCallback(BaseCallbackHandler):
+    """
+    Real-time token usage logger callback.
+    """
+    def on_llm_end(self, response, **kwargs):
+        for generations in response.generations:
+            for gen in generations:
+                info = getattr(gen, "generation_info", {}) or {}
+                token_usage = info.get("token_usage") or info.get("usage")
+                if token_usage:
+                    prompt_tok = token_usage.get("prompt_tokens") or token_usage.get("prompt_eval_count") or "N/A"
+                    compl_tok = token_usage.get("completion_tokens") or token_usage.get("eval_count") or "N/A"
+                    total_tok = token_usage.get("total_tokens") or "N/A"
+                    print(f"\n⚡ [LLM Token Usage Report]")
+                    print(f"   ├─ Prompt Tokens     : {prompt_tok}")
+                    print(f"   ├─ Completion Tokens : {compl_tok}")
+                    print(f"   ├─ Total Tokens      : {total_tok}")
+                    print(f"   └─ Cost              : $0.00 (100% FREE)\n")
+
+
+def _validate_groq_model(model_name: str, api_key: str) -> None:
+    try:
+        resp = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        live_ids = {m["id"] for m in resp.json().get("data", [])}
+    except Exception:
+        return
+
+    if model_name not in live_ids:
+        print(
+            f"\nWARNING: '{model_name}' is not in Groq's current live model list.\n"
+            f"Currently available models include:\n"
+            f"  {sorted(live_ids)}\n"
+            f"Set GROQ_MODEL in .env to one of the above.\n"
+        )
+
+
+class ToolParsingChatGroq(ChatGroq):
+    """
+    Parses raw function XML text (<function=name(...)}></function>) from Llama models on Groq.
+    Catches Groq HTTP 400 failed_generation exceptions and converts them into valid tool calls!
+    """
+    def _generate(self, messages, **kwargs):
+        trimmed_messages = message_trimmer.invoke(messages)
+        res = None
+        text = ""
+
+        try:
+            res = super()._generate(trimmed_messages, **kwargs)
+        except Exception as e:
+            err_str = str(e)
+            if hasattr(e, "body") and isinstance(e.body, dict):
+                text = e.body.get("failed_generation", "")
+            if not text and "failed_generation" in err_str:
+                match_txt = re.search(r"failed_generation'?: '(.*?)'\}", err_str, re.DOTALL)
+                if match_txt:
+                    text = match_txt.group(1)
+
+            if text and "<function=" in text:
+                name_match = re.search(r'<function=([a-zA-Z0-9_]+)', text)
+                json_match = re.search(r'(\{.*\})', text, re.DOTALL)
+                if name_match:
+                    tool_name = name_match.group(1)
+                    args = {}
+                    if json_match:
+                        raw_json = json_match.group(1).split("</function>")[0].strip()
+                        try:
+                            args = json.loads(raw_json)
+                        except Exception:
+                            args = {}
+
+                    ai_msg = AIMessage(
+                        content="",
+                        tool_calls=[{
+                            "name": tool_name,
+                            "args": args,
+                            "id": f"call_{int(time.time()*1000)}",
+                            "type": "tool_call"
+                        }]
+                    )
+                    gen = ChatGeneration(message=ai_msg)
+                    return ChatResult(generations=[gen])
+            raise e
+
+        for generations in res.generations:
+            for gen in generations:
+                msg = getattr(gen, "message", None)
+                if msg and hasattr(msg, "content") and isinstance(msg.content, str):
+                    text_content = msg.content
+                    if "<function=" in text_content:
+                        name_match = re.search(r'<function=([a-zA-Z0-9_]+)', text_content)
+                        if name_match:
+                            tool_name = name_match.group(1)
+                            json_match = re.search(r'(\{.*\})', text_content, re.DOTALL)
+                            args = {}
+                            if json_match:
+                                raw_json = json_match.group(1).split("</function>")[0].strip()
+                                try:
+                                    args = json.loads(raw_json)
+                                except Exception:
+                                    args = {}
+
+                            msg.tool_calls = [{
+                                "name": tool_name,
+                                "args": args,
+                                "id": f"call_{int(time.time()*1000)}",
+                                "type": "tool_call"
+                            }]
+                            msg.content = ""
+        return res
+
+
+def build_production_llm():
+    token_logger = TokenLoggerCallback()
+
+    # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
+    nvidia_key = os.getenv("NVIDIA_API_KEY")
+    if nvidia_key:
+        return ChatOpenAI(
+            model=os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
+            openai_api_key=nvidia_key,
+            openai_api_base="https://integrate.api.nvidia.com/v1",
+            temperature=0.0,
+            max_retries=5,
+            callbacks=[token_logger]
+        )
+
+    # 2. Secondary Option: Groq LPU
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        _validate_groq_model(model_name, groq_key)
+        return ToolParsingChatGroq(
+            model_name=model_name,
+            groq_api_key=groq_key,
+            temperature=0.0,
+            max_retries=5,
+            callbacks=[token_logger]
+        )
+
+    gh_token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if gh_token:
+        return ChatOpenAI(
+            model=os.getenv("GITHUB_MODEL", "gpt-4o-mini"),
+            openai_api_key=gh_token,
+            openai_api_base="https://models.inference.ai.azure.com",
+            temperature=0.0,
+            max_retries=5,
+            callbacks=[token_logger]
+        )
+
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gemini_key:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+                google_api_key=gemini_key,
+                temperature=0.0,
+                max_retries=5,
+                callbacks=[token_logger]
+            )
+        except ImportError:
+            pass
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_key:
+        return ChatOpenAI(
+            model=os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct"),
+            openai_api_key=openrouter_key,
+            openai_api_base="https://openrouter.ai/api/v1",
+            temperature=0.0,
+            max_retries=5,
+            callbacks=[token_logger]
+        )
+
+    raise ValueError("No valid API key found in environment variables.")
+
+
+def build_awis_agent(query: str = "Agentic AI Architectures"):
     vfs_path = os.path.abspath("./workspace")
+    reports_path = os.path.abspath("./workspace/reports")
     os.makedirs(vfs_path, exist_ok=True)
-    
-    llm = ChatGroq(
-        model_name="openai/gpt-oss-120b",
-        temperature=0.1,
-        groq_api_key=os.getenv("GROQ_API_KEY")
-    )
-    
-    backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=False)
-    
+    os.makedirs(reports_path, exist_ok=True)
+
+    llm = build_production_llm()
+    backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
+
     agent = create_deep_agent(
-        model=llm,                
+        model=llm,
         backend=backend,
-        tools=AWIS_TOOL_REGISTRY,
+        tools=[],
+        system_prompt=(
+            "Lead Orchestrator for AWIS. Delegate research tasks sequentially once: "
+            "1. Planner -- create research plan. "
+            "2. Researcher -- gather raw data across sources. "
+            "3. Verifier -- audit findings. "
+            "4. Reporter -- compile final report and call save_intelligence_report. "
+            "CRITICAL: Once Reporter saves the report, output the final report text and STOP delegating."
+        ),
         subagents=[
             {
                 "name": "Planner",
-                "description": "Breaks down user queries into a step-by-step intelligence plan.",
-                "system_prompt": "You are a master planning agent. Break down the user query into clear tasks using TodoToolset."
+                "description": "Creates structured multi-domain research plan.",
+                "system_prompt": (
+                    "Create a concise 4-step research plan covering: "
+                    "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise."
+                ),
+                "tools": [],
             },
             {
                 "name": "Researcher",
-                "description": "Gathers data using web discovery and extraction tools.",
-                "system_prompt": "You are a web intelligence researcher. Use available search and extractor tools, and save raw files to workspace."
+                "description": "Gathers raw data across specialized tools.",
+                "system_prompt": (
+                    "Execute assigned research tools to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
+                    "Return a clean, factual summary containing all hard numbers, dates, paper links, and repo URLs."
+                ),
+                "tools": dynamic_research_tools,
             },
             {
                 "name": "Verifier",
-                "description": "Audits saved files for factual accuracy and evidence grounding.",
-                "system_prompt": "You are a strict verifier agent. Read saved files, cross-examine claims, and compile verified data."
+                "description": "Audits research findings for accuracy.",
+                "system_prompt": (
+                    "Audit research findings gathered by Researcher for credibility, source quality, and technical accuracy. "
+                    "Use assigned search tools to cross-verify claims and return verified facts concisely."
+                ),
+                "tools": VERIFIER_TOOLS,
             },
             {
                 "name": "Reporter",
-                "description": "Synthesizes final intelligence reports.",
-                "system_prompt": "You are a senior report generator. Compile the final intelligence brief into workspace/final_report.md."
-            }
-        ]
+                "description": "Synthesizes final comprehensive intelligence brief.",
+                "system_prompt": (
+                    "Compile an exhaustive, highly detailed, production-grade intelligence report. "
+                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, "
+                    "concrete architecture explanations, and verified benchmarks. Structure into 6 clear sections: "
+                    "1. Executive Summary & Core Insights, "
+                    "2. Deep Technical System Architecture & Workflows, "
+                    "3. Production Code Patterns & GitHub Repositories (with links), "
+                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
+                    "5. Risk, Bottlenecks & Production Trade-offs, "
+                    "6. Verified Source Citation Index. "
+                    "Write in thorough markdown depth and call save_intelligence_report to save to disk."
+                ),
+                "tools": REPORTER_TOOLS,
+            },
+        ],
     )
     return agent
 
+
+def run_pipeline(raw_query: str) -> str:
+    clean_query = re.sub(r'\s+', ' ', raw_query).strip()
+    if not clean_query:
+        return "Error: Empty query provided."
+
+    stats = cache_manager.get_stats()
+    print("=" * 60)
+    print("       AWIS Production Web Intelligence Pipeline            ")
+    print("=" * 60)
+    print(f"Target Query : '{clean_query}'")
+    print(f"Cache Volume : {stats['total_entries']} entries ({stats['size_bytes'] / 1024:.1f} KB)")
+    print()
+
+    agent = build_awis_agent(clean_query)
+
+    def _looks_like_leaked_tool_call(text: str) -> bool:
+        stripped = text.strip()
+        if "# Executive Summary" in stripped or "# Technical Analysis" in stripped or "# Intelligence Report" in stripped:
+            return False
+        return (stripped.startswith('{"type": "function"') or stripped.startswith("{'type': 'function'")) and not stripped.endswith("}")
+
+    latest_file = os.path.abspath("./workspace/latest_report.md")
+    if os.path.exists(latest_file):
+        try:
+            os.remove(latest_file)
+        except Exception:
+            pass
+
+    max_attempts = 3
+    final_output = None
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = agent.invoke(
+                {"messages": [{"role": "user", "content": clean_query}]},
+                config={"recursion_limit": 50},
+            )
+        except Exception as e:
+            last_error = e
+            if "tool_use_failed" in str(e) and attempt < max_attempts:
+                print(f"\nTool-call formatting glitch (attempt {attempt}/{max_attempts}) -- retrying...")
+                continue
+            print(f"\nPipeline failed during execution.\nFULL ERROR: {e}\n")
+            return f"Error: Pipeline execution failed -- {e}"
+
+        if os.path.exists(latest_file):
+            with open(latest_file, "r", encoding="utf-8") as f:
+                candidate_output = f.read()
+        else:
+            last_message = response["messages"][-1]
+            candidate_output = last_message.content if isinstance(last_message.content, str) else str(last_message.content)
+
+        if _looks_like_leaked_tool_call(candidate_output):
+            last_error = "Model leaked a tool call as plain text instead of executing it."
+            if attempt < max_attempts:
+                print(f"\nLeaked tool-call detected in output (attempt {attempt}/{max_attempts}) -- retrying...")
+                continue
+            print(f"\nPipeline failed: model repeatedly leaked tool calls instead of executing them.\n")
+            return f"Error: {last_error}"
+
+        final_output = candidate_output
+        print("\nPipeline Execution Finished Successfully!")
+        break
+
+    if final_output is None:
+        return f"Error: Pipeline execution failed after {max_attempts} attempts -- {last_error}"
+
+    print("\n" + "=" * 60)
+    print("                FINAL INTELLIGENCE REPORT                ")
+    print("=" * 60 + "\n")
+    print(final_output)
+    print("\n" + "=" * 60)
+    print(f"Latest Report : {latest_file}\n")
+
+    return final_output
+
+
 if __name__ == "__main__":
-    query = sys.argv[1] if len(sys.argv) > 1 else "Latest engineering challenges with vector databases"
-    
-    print(f"\nInitializing AWIS DeepAgent Pipeline...")
-    print(f"Target Query: '{query}'\n")
-    
-    awis_agent = build_awis_agent()
-    print("Running agent workflow...")
-    
-    response = awis_agent.invoke({"messages": [{"role": "user", "content": query}]})
-    
-    print("\nPipeline Execution Finished!")
-    print(f"Check the './workspace/' folder for generated markdown reports.")
+    query_arg = sys.argv[1] if len(sys.argv) > 1 else "Latest advances in Agentic AI architectures"
+    run_pipeline(query_arg)

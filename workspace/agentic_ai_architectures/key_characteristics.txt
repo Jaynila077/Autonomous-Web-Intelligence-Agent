@@ -1,0 +1,11 @@
+# Key Characteristics of Agentic AI Architectures
+
+1. **Autonomy**: Agentic AI systems can operate independently without human intervention, making decisions based on their programming and learning.
+
+2. **Adaptability**: These systems can learn from their environment and experiences, allowing them to adjust their behavior and strategies over time.
+
+3. **Interactivity**: Agentic AIs can engage with other agents (human or machine) and respond to their actions, facilitating collaboration and communication.
+
+4. **Goal-Oriented Behavior**: They are designed to achieve specific objectives, which guide their decision-making processes.
+
+5. **Learning Capabilities**: Utilizing machine learning techniques, agentic AIs can improve their performance by analyzing past actions and outcomes.

@@ -1,0 +1,21 @@
+# Types of Agentic AI Architectures
+
+## 1. Reactive Agents
+- **Description**: These agents respond to stimuli from their environment without internal state or memory.
+- **Strengths**: Simple and fast; suitable for well-defined tasks.
+- **Weaknesses**: Lack of learning and adaptability.
+
+## 2. Deliberative Agents
+- **Description**: These agents maintain an internal model of the world and can plan actions based on that model.
+- **Strengths**: Capable of complex decision-making and planning.
+- **Weaknesses**: Computationally intensive and may struggle in dynamic environments.
+
+## 3. Hybrid Agents
+- **Description**: Combine reactive and deliberative approaches to leverage the strengths of both.
+- **Strengths**: Flexible and adaptable; can handle a variety of tasks.
+- **Weaknesses**: Complexity in design and implementation.
+
+## 4. Learning Agents
+- **Description**: These agents improve their performance over time through learning from experiences.
+- **Strengths**: Highly adaptable and capable of handling unforeseen situations.
+- **Weaknesses**: Requires significant data and time to learn effectively.
