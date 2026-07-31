@@ -9,16 +9,18 @@ from src.tools.web_tools import (
     find_site_feeds,
 )
 from src.tools.dev_tools import search_github_repos, search_stackexchange
-from src.tools.media_tools import search_youtube_transcripts, search_youtube_transcripts_no_key
+from src.tools.media_tools import search_youtube
 from src.tools.social_tools import (
-    search_reddit,
-    search_bluesky,
     search_mastodon,
     search_lemmy,
-    search_tumblr,
-    search_vk,
 )
-from src.tools.extractor_tools import extract_pdf_with_pdfplumber, save_intelligence_report
+from src.tools.extractor_tools import (
+    extract_pdf_with_pdfplumber,
+    extract_github_readme,
+    extract_youtube_transcript,
+    extract_lemmy_post,
+    save_intelligence_report,
+)
 
 # Subagent Scoped Toolsets (keeps prompt tokens light & prevents 429 rate limits)
 RESEARCHER_TOOLS = [
@@ -29,9 +31,9 @@ RESEARCHER_TOOLS = [
     search_tavily,
     search_exa_semantic,
     search_github_repos,
-    search_youtube_transcripts,
-    search_reddit,
-    search_bluesky,
+    extract_github_readme,
+    search_youtube,
+    extract_youtube_transcript,
     extract_pdf_with_pdfplumber,
 ]
 
@@ -46,10 +48,13 @@ REPORTER_TOOLS = [
     save_intelligence_report,
 ]
 
-# Master Registry containing all 18+ tools
+# Master Registry containing every tool the app knows about
 AWIS_TOOL_REGISTRY = [
+    # -- Academic / research --
     search_arxiv,
     search_clinical_trials,
+
+    # -- General web --
     fetch_wiki_data,
     search_web_news,
     search_tavily,
@@ -57,24 +62,33 @@ AWIS_TOOL_REGISTRY = [
     find_working_searxng,
     search_site_content,
     find_site_feeds,
+
+    # -- Dev / code --
     search_github_repos,
     search_stackexchange,
-    search_youtube_transcripts,
-    search_youtube_transcripts_no_key,
-    search_reddit,
-    search_bluesky,
+
+    # -- Media --
+    search_youtube,
+
+    # -- Social --
     search_mastodon,
     search_lemmy,
-    search_tumblr,
-    search_vk,
+
+    # -- Extractors: expensive, targeted full-content fetch (call after a search tool) --
     extract_pdf_with_pdfplumber,
+    extract_github_readme,
+    extract_youtube_transcript,
+    extract_lemmy_post,
+
+    # -- Output --
     save_intelligence_report,
 ]
 
+
 def select_dynamic_tools(query: str, max_tools: int = 2) -> list:
     """
-    Dynamic Tool Router: Inspects the user's research query and selects 
-    the top 2 most relevant tools from all 18+ tools in AWIS_TOOL_REGISTRY.
+    Dynamic Tool Router: Inspects the user's research query and selects
+    the top N most relevant tools from AWIS_TOOL_REGISTRY.
     Preserves 100% of AWIS's multi-source USP while eliminating schema noise.
     """
     q = query.lower()
@@ -97,15 +111,14 @@ def select_dynamic_tools(query: str, max_tools: int = 2) -> list:
         _add(search_stackexchange)
 
     # Domain 3: Community & Social Sentiment
-    if any(k in q for k in ["reddit", "opinion", "review", "discussion", "community"]):
-        _add(search_reddit)
-    if any(k in q for k in ["bluesky", "mastodon", "fediverse", "social"]):
-        _add(search_bluesky)
+    if any(k in q for k in ["mastodon", "fediverse", "social"]):
         _add(search_mastodon)
+    if any(k in q for k in ["lemmy"]):
+        _add(search_lemmy)
 
-    # Domain 4: Media & Video Transcripts
+    # Domain 4: Media & Video
     if any(k in q for k in ["youtube", "video", "talk", "lecture", "transcript"]):
-        _add(search_youtube_transcripts)
+        _add(search_youtube)
 
     # Core Foundation Fallbacks (Guarantees broad web coverage)
     _add(search_tavily)
