@@ -27,7 +27,7 @@ from src.tools.youtube_tools import search_youtube_videos
 # SUBAGENT SCOPED TOOLSETS (Context Window Optimization)
 # ==========================================
 
-# 1. SCOUT / RESEARCHER (Dev 2): Only needs tools that actively discover URLs and initial claims.
+# 1. SCOUT / RESEARCHER: Only needs tools that actively discover URLs and initial claims.
 RESEARCHER_TOOLS = [
     search_arxiv,
     search_clinical_trials,
@@ -46,7 +46,7 @@ RESEARCHER_TOOLS = [
     search_lemmy,
 ]
 
-# 2. EXTRACTOR ENGINE (Dev 3): Only needs tools that parse and clean targeted documents into Markdown.
+# 2. EXTRACTOR ENGINE: Only needs tools that parse and clean targeted documents into Markdown.
 EXTRACTOR_TOOLS = [
     extract_pdf_with_pdfplumber,
     extract_article_text,
@@ -56,7 +56,7 @@ EXTRACTOR_TOOLS = [
     extract_lemmy_post
 ]
 
-# 3. VERIFIER (Dev 4): Strictly authoritative databases for fact-checking to drop hallucinations.
+# 3. VERIFIER: Strictly authoritative databases for fact-checking to drop hallucinations.
 VERIFIER_TOOLS = [
     extract_wikipedia_summary,
     search_clinical_trials,
@@ -65,7 +65,7 @@ VERIFIER_TOOLS = [
     search_stackexchange 
 ]
 
-# 4. REPORTER (Dev 5): Synthesizing and saving the final intelligence brief.
+# 4. REPORTER: Synthesizing and saving the final intelligence brief.
 REPORTER_TOOLS = [
     save_intelligence_report
 ]
