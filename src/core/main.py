@@ -9,8 +9,9 @@ from deepagents.backends import FilesystemBackend
 from langchain_groq import ChatGroq
 from src.tools.registry import AWIS_TOOL_REGISTRY
 
-def build_awis_agent():
-    vfs_path = os.path.abspath("./workspace")
+def build_awis_agent(user_id: str = "cli_user", job_id: str = "local_test"):
+    
+    vfs_path = os.path.abspath(f"./workspace/users/{user_id}/jobs/{job_id}")
     os.makedirs(vfs_path, exist_ok=True)
     
     llm = ChatGroq(
@@ -48,18 +49,16 @@ def build_awis_agent():
             }
         ]
     )
-    return agent
+    return agent, vfs_path
 
 if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else "Latest engineering challenges with vector databases"
-    
-    print(f"\nInitializing AWIS DeepAgent Pipeline...")
+    print(f"\nAWIS DeepAgent Pipeline (CLI Mode)...")
     print(f"Target Query: '{query}'\n")
     
-    awis_agent = build_awis_agent()
+    awis_agent, vfs_path = build_awis_agent(user_id="cli_test", job_id="debug_run")
     print("Running agent workflow...")
     
     response = awis_agent.invoke({"messages": [{"role": "user", "content": query}]})
-    
     print("\nPipeline Execution Finished!")
-    print(f"Check the './workspace/' folder for generated markdown reports.")
+    print(f"Check '{vfs_path}' for generated markdown reports.")
