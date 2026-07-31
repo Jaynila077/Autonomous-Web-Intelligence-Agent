@@ -1,0 +1,370 @@
+============================================================
+🛠️  Testing Tool: search_arxiv_papers
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Changing Data Sources in the Age of Machine Learning for Official Statistics",
+    "authors": "Cedric De Boom, Michael Reusens",
+    "published": "2023-06-07",
+    "summary": "Data science has become increasingly essential for the production of official statistics, as it enables the automated collection, processing, and analysis of large amounts of data. With such data science practices in place, it enables more timely, more insightful and more flexible reporting. However, the quality and integrity of data-science-driven statistics rely on the accuracy and reliability of the data sources and the machine learning techniques that support them. In particular, changes in data sources are inevitable to occur and pose significant risks that are crucial to address in the context of machine learning for official statistics.   This paper gives an overview of the main risks, liabilities, and uncertainties associated with changing data sources in the context of machine learnin
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_domain_with_dork
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Scrapfly - Web Scraping API, Cloud Browser, Screenshot API",
+    "url": "https://scrapfly.io/",
+    "snippet": "... A web scraping API is a service that fetches any URL with anti-bot bypass, proxy rotation, and JavaScript rendering on every request, without you maintaining headless browsers or proxy stacks."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: search_with_exa
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "EXA_API_KEY environment variable is not set."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: extract_pdf_with_pdfplumber
+============================================================
+Downloading PDF from: https://arxiv.org/pdf/1706.03762.pdf...
+✅ Tool is working! Sample Output:
+# PDF Extraction Report
+**Source URL:** https://arxiv.org/pdf/1706.03762.pdf
+**Total Pages:** 15 (Reading top 1)
+
+---
+
+### Page 1
+Providedproperattributionisprovided,Googleherebygrantspermissionto
+reproducethetablesandfiguresinthispapersolelyforuseinjournalisticor
+scholarlyworks.
+Attention Is All You Need
+AshishVaswani∗ NoamShazeer∗ NikiParmar∗ JakobUszkoreit∗
+GoogleBrain GoogleBrain GoogleResearch GoogleResearch
+avaswani@google.com noam@google.com nikip@google.com usz@google.com
+LlionJones∗ AidanN.Gomez∗ † ŁukaszKaiser∗
+GoogleResearch UniversityofToronto GoogleBrain
+llion@google.com aidan@cs.toronto.edu lukaszkaiser@google.com
+IlliaPolosukhin∗ ‡
+illia.polosukhin@gmail.com
+Abstract
+Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor
+convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest
+performing models also connect the encoder and decoder through an attention
+mechanism. We propose a new simple network architecture, the Transformer,
+basedsolelyonattentionmec
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: extract_article_text
+============================================================
+✅ Tool is working! Sample Output:
+{
+  "url": "https://en.wikipedia.org/wiki/Web_scraping",
+  "content": "# Web scraping\n\n| This article  needs .[more citations](https://en.wikipedia.org/wiki/Wikipedia:Verifiability)(April 2023) | \n\n**Web scraping**, **web harvesting**, or **web data extraction** is [data scraping](https://en.wikipedia.org/wiki/Data_scraping) used for [extracting data](https://en.wikipedia.org/wiki/Data_extraction) from [websites](https://en.wikipedia.org/wiki/Website). [1] Web scraping software may directly access the \n\n[World Wide Web](https://en.wikipedia.org/wiki/World_Wide_Web)using the\n\n[Hypertext Transfer Protocol](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol)or a web browser. While web scraping can be done manually by a software user, the term typically refers to automated processes implemented using a\n\n[bot](https://en.wikipedia.org/wiki/Internet_bot)or\n\n[web crawler](https://en.wikipedia.org/wiki/Web_crawler). It is a form of copying in which specific data is gathered 
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_clinical_trials
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "NCT_ID": "NCT04896788",
+    "Title": "Monitoring of the Post-vaccination Immune Response to COVID-19 Among Hospital Staff",
+    "Status": "UNKNOWN",
+    "Summary": "Vaccination against COVID-19 is a major public health issue to control the epidemic and reduce the number of severe infections and deaths. Three vaccines currently received use authorization in France: two mRNA vaccines and one recombinant viral vector vaccine. Immunogenicity data demonstrate that they induce the development of neutralizing antibodies and IgG directed against the viral S1 protein and the receptor binding domain (RBD). However, there are currently no data on the persistence over time of the humoral response induced by vaccination, and data are still incomplete on cellular immunogenicity. No immune correlate of protection has been established for COVID-19.\n\nIn addition, these data come from assays carried out with current vaccines developed against a lineage of SARS-CoV-2 known as wild type (with
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_news_duckduckgo
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Artificial intelligence",
+    "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+    "snippet": "Artificial intelligence (AI) is the capability of computational systems to perform tasks typically associated with human intelligence, such as learning, reasoning, problem-solving, perception, and decision-making. It is a field of research in engineering, mathematics, and computer science that develops and studies methods and software that enable machines to perceive their environment and use learning and intelligence to take actions that maximize their chances of achieving defined goals.High-profile applications of AI include advanced web search engines, chatbots, virtual assistants, autonomous vehicles, and play and analysis in strategy games (e.g., chess and Go). Since the 2020s, generative AI has become widely available to generate images, audio, and videos from text prompts.The traditional goals of AI research include learning, reasoning, knowledge repr
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: monitor_rss_feed
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Amazon and Apple just told us more about their AI plans - here are three things we learned",
+    "url": "https://www.bbc.co.uk/news/articles/cp87m46g392o?at_medium=RSS&at_campaign=rss",
+    "published": "Fri, 31 Jul 2026 01:31:50 GMT"
+  }
+]
+
+============================================================
+🛠️  Testing Tool: search_arxiv
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Tierkreis: A Dataflow Framework for Hybrid Quantum-Classical Computing",
+    "authors": "Seyon Sivarajah, Lukas Heidemann, Alan Lawrence, Ross Duncan",
+    "published": "2022-11-04",
+    "summary": "We present Tierkreis, a higher-order dataflow graph program representation and runtime designed for compositional, quantum-classical hybrid algorithms. The design of the system is motivated by the remote nature of quantum computers, the need for hybrid algorithms to involve cloud and distributed computing, and the long-running nature of these algorithms. The graph-based representation reflects how designers reason about and visualise algorithms, and allows automatic parallelism and asynchronicity. A strong, static type system and higher-order semantics allow for high expressivity and compositionality in the program. The flexible runtime protocol enables third-party developers to add functionality using any language or environment. With Tierkreis, quantum software develop
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: find_working_searx_instances
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "Failed to find any working SearxNG instances after filtering."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: tavily_basic_search
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "Tavily basic search failed: TAVILY_API_KEY environment variable is not set."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: tavily_advanced_research
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Tavily advanced research failed: TAVILY_API_KEY environment variable is not set."
+}
+
+============================================================
+🛠️  Testing Tool: extract_webpage_with_tavily
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Tavily webpage extraction failed: TAVILY_API_KEY environment variable is not set."
+}
+
+============================================================
+🛠️  Testing Tool: extract_wikipedia_summary
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Error fetching data from Wikipedia API: 403 Client Error: Forbidden for url: https://en.wikipedia.org/w/api.php?action=query&format=json&titles=Quantum+computing&prop=extracts%7Cinfo&inprop=url&exintro=True&explaintext=True&exsectionformat=plain&redirects=1"
+}
+
+============================================================
+🛠️  Testing Tool: search_youtube_videos
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "YOUTUBE_API_KEY environment variable is missing. Cannot perform search."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: extract_youtube_transcript
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Failed to extract transcript for Video ID jNQXAC9IVRw. The creator may have disabled subtitles. Details: type object 'YouTubeTranscriptApi' has no attribute 'get_transcript'"
+}
+(AWIA) PS C:\Users\mahak\Autonomous-Web-Intelligence-Agent> & C:\Users\mahak\miniconda3\envs\AWIA\python.exe c:/Users/mahak/Autonomous-Web-Intelligence-Agent/src/tools/test_all_tools.py
+
+============================================================
+🛠️  Testing Tool: search_arxiv_papers
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Changing Data Sources in the Age of Machine Learning for Official Statistics",
+    "authors": "Cedric De Boom, Michael Reusens",
+    "published": "2023-06-07",
+    "summary": "Data science has become increasingly essential for the production of official statistics, as it enables the automated collection, processing, and analysis of large amounts of data. With such data science practices in place, it enables more timely, more insightful and more flexible reporting. However, the quality and integrity of data-science-driven statistics rely on the accuracy and reliability of the data sources and the machine learning techniques that support them. In particular, changes in data sources are inevitable to occur and pose significant risks that are crucial to address in the context of machine learning for official statistics.   This paper gives an overview of the main risks, liabilities, and uncertainties associated with changing data sources in the context of machine learnin
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_domain_with_dork
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Scrapfly - Web Scraping API, Cloud Browser, Screenshot API",
+    "url": "https://scrapfly.io/",
+    "snippet": "Web Scraping API. The unblocker. Fetch any URL with anti-bot bypass, proxy rotation, and JS rendering toggle."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: search_with_exa
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "EXA_API_KEY environment variable is not set."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: extract_pdf_with_pdfplumber
+============================================================
+Downloading PDF from: https://arxiv.org/pdf/1706.03762.pdf...
+✅ Tool is working! Sample Output:
+# PDF Extraction Report
+**Source URL:** https://arxiv.org/pdf/1706.03762.pdf
+**Total Pages:** 15 (Reading top 1)
+
+---
+
+### Page 1
+Providedproperattributionisprovided,Googleherebygrantspermissionto
+reproducethetablesandfiguresinthispapersolelyforuseinjournalisticor
+scholarlyworks.
+Attention Is All You Need
+AshishVaswani∗ NoamShazeer∗ NikiParmar∗ JakobUszkoreit∗
+GoogleBrain GoogleBrain GoogleResearch GoogleResearch
+avaswani@google.com noam@google.com nikip@google.com usz@google.com
+LlionJones∗ AidanN.Gomez∗ † ŁukaszKaiser∗
+GoogleResearch UniversityofToronto GoogleBrain
+llion@google.com aidan@cs.toronto.edu lukaszkaiser@google.com
+IlliaPolosukhin∗ ‡
+illia.polosukhin@gmail.com
+Abstract
+Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor
+convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest
+performing models also connect the encoder and decoder through an attention
+mechanism. We propose a new simple network architecture, the Transformer,
+basedsolelyonattentionmec
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: extract_article_text
+============================================================
+✅ Tool is working! Sample Output:
+{
+  "url": "https://en.wikipedia.org/wiki/Web_scraping",
+  "content": "# Web scraping\n\n| This article  needs .[more citations](https://en.wikipedia.org/wiki/Wikipedia:Verifiability)(April 2023) | \n\n**Web scraping**, **web harvesting**, or **web data extraction** is [data scraping](https://en.wikipedia.org/wiki/Data_scraping) used for [extracting data](https://en.wikipedia.org/wiki/Data_extraction) from [websites](https://en.wikipedia.org/wiki/Website). [1] Web scraping software may directly access the \n\n[World Wide Web](https://en.wikipedia.org/wiki/World_Wide_Web)using the\n\n[Hypertext Transfer Protocol](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol)or a web browser. While web scraping can be done manually by a software user, the term typically refers to automated processes implemented using a\n\n[bot](https://en.wikipedia.org/wiki/Internet_bot)or\n\n[web crawler](https://en.wikipedia.org/wiki/Web_crawler). It is a form of copying in which specific data is gathered 
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_clinical_trials
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "NCT_ID": "NCT04896788",
+    "Title": "Monitoring of the Post-vaccination Immune Response to COVID-19 Among Hospital Staff",
+    "Status": "UNKNOWN",
+    "Summary": "Vaccination against COVID-19 is a major public health issue to control the epidemic and reduce the number of severe infections and deaths. Three vaccines currently received use authorization in France: two mRNA vaccines and one recombinant viral vector vaccine. Immunogenicity data demonstrate that they induce the development of neutralizing antibodies and IgG directed against the viral S1 protein and the receptor binding domain (RBD). However, there are currently no data on the persistence over time of the humoral response induced by vaccination, and data are still incomplete on cellular immunogenicity. No immune correlate of protection has been established for COVID-19.\n\nIn addition, these data come from assays carried out with current vaccines developed against a lineage of SARS-CoV-2 known as wild type (with
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_news_duckduckgo
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Artificial intelligence",
+    "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+    "snippet": "Artificial intelligence (AI) is the capability of computational systems to perform tasks typically associated with human intelligence, such as learning, reasoning, problem-solving, perception, and decision-making. It is a field of research in engineering, mathematics, and computer science that develops and studies methods and software that enable machines to perceive their environment and use learning and intelligence to take actions that maximize their chances of achieving defined goals.High-profile applications of AI include advanced web search engines, chatbots, virtual assistants, autonomous vehicles, and play and analysis in strategy games (e.g., chess and Go). Since the 2020s, generative AI has become widely available to generate images, audio, and videos from text prompts.The traditional goals of AI research include learning, reasoning, knowledge repr
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: monitor_rss_feed
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Amazon and Apple just told us more about their AI plans - here are three things we learned",
+    "url": "https://www.bbc.co.uk/news/articles/cp87m46g392o?at_medium=RSS&at_campaign=rss",
+    "published": "Fri, 31 Jul 2026 01:31:50 GMT"
+  }
+]
+
+============================================================
+🛠️  Testing Tool: search_arxiv
+============================================================
+✅ Tool is working! Sample Output:
+[
+  {
+    "title": "Tierkreis: A Dataflow Framework for Hybrid Quantum-Classical Computing",
+    "authors": "Seyon Sivarajah, Lukas Heidemann, Alan Lawrence, Ross Duncan",
+    "published": "2022-11-04",
+    "summary": "We present Tierkreis, a higher-order dataflow graph program representation and runtime designed for compositional, quantum-classical hybrid algorithms. The design of the system is motivated by the remote nature of quantum computers, the need for hybrid algorithms to involve cloud and distributed computing, and the long-running nature of these algorithms. The graph-based representation reflects how designers reason about and visualise algorithms, and allows automatic parallelism and asynchronicity. A strong, static type system and higher-order semantics allow for high expressivity and compositionality in the program. The flexible runtime protocol enables third-party developers to add functionality using any language or environment. With Tierkreis, quantum software develop
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: find_working_searx_instances
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "Failed to find any working SearxNG instances after filtering."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: tavily_basic_search
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "Tavily basic search failed: TAVILY_API_KEY environment variable is not set."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: tavily_advanced_research
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Tavily advanced research failed: TAVILY_API_KEY environment variable is not set."
+}
+
+============================================================
+🛠️  Testing Tool: extract_webpage_with_tavily
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Tavily webpage extraction failed: TAVILY_API_KEY environment variable is not set."
+}
+
+============================================================
+🛠️  Testing Tool: extract_wikipedia_summary
+============================================================
+✅ Tool is working! Sample Output:
+{
+  "title": "Quantum computing",
+  "url": "https://en.wikipedia.org/wiki/Quantum_computing",
+  "summary": "A quantum computer is a computer that represents and processes information using quantum states. Quantum computations exploit phenomena such as superposition, interference, and entanglement. Quantum computers have the potential to complete some calculations exponentially faster than classical computers. For example, a large-scale quantum computer could break widely used encryption schemes and aid physicists in performing physical simulations. However, current hardware implementations of quantum computation are largely experimental and suitable for only certain specialized tasks.\nThe basic unit of information in quantum computing, the qubit (quantum bit), serves a similar function as the bit in ordinary or \"classical\" computing. Unlike a classical bit, which can be in one of two states (a binary), a qubit can exist in a linear combination of states known as a quantum superposit
+... [OUTPUT TRUNCATED FOR READABILITY]
+
+============================================================
+🛠️  Testing Tool: search_youtube_videos
+============================================================
+❌ Tool returned a soft error:
+[
+  {
+    "error": "YOUTUBE_API_KEY environment variable is missing. Cannot perform search."
+  }
+]
+
+============================================================
+🛠️  Testing Tool: extract_youtube_transcript
+============================================================
+❌ Tool returned a soft error:
+{
+  "error": "Failed to extract transcript for Video ID jNQXAC9IVRw. The creator may have disabled subtitles. Details: type object 'YouTubeTranscriptApi' has no attribute 'get_transcript'"
+}
