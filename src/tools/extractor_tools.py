@@ -3,8 +3,16 @@ import os
 import re
 import requests
 import pdfplumber
+from typing import Dict, Any, List
+try:
+    import trafilatura
+except ImportError:
+    trafilatura = None
 from datetime import datetime
 from langchain_core.tools import tool
+import requests
+
+
 
 DEFAULT_TIMEOUT = 15
 
@@ -44,6 +52,55 @@ def extract_pdf_with_pdfplumber(pdf_url: str, max_pages: int = 10) -> str:
         return extracted_markdown
     except Exception as e:
         return f"Error extracting PDF with pdfplumber: {str(e)}"
+
+
+@tool
+def extract_article_text(url: str) -> Dict[str, Any]:
+    """
+    Extracts the main body text (e.g., blog posts, news articles, documentation) 
+    from a specific webpage URL and converts it into clean Markdown.
+    
+    Use this tool AFTER a search tool (like DuckDuckGo dorks or Exa) has identified 
+    a highly relevant URL. This tool strips away HTML clutter, sidebars, navigation, 
+    and user comments to provide pure semantic text for the LLM to analyze.
+    
+    Args:
+        url (str): The direct hyperlink (URL) of the webpage to extract content from.
+        
+    Returns:
+        Dict[str, Any]: A dictionary containing the extracted data:
+            - url (str): The original URL that was parsed.
+            - content (str): The extracted main body text formatted as clean Markdown.
+            
+        If the extraction fails, the site blocks the scraper, or the main body cannot 
+        be found, returns a dictionary with an 'error' key detailing the issue.
+    """
+    try:
+        # Fetch the raw HTML
+        downloaded_html = trafilatura.fetch_url(url)
+        
+        if not downloaded_html:
+            return {"error": f"Failed to download the page at {url}. Anti-bot protection might be active."}
+
+        # Run extraction heuristics
+        clean_text = trafilatura.extract(
+            downloaded_html, 
+            output_format="markdown",
+            include_comments=False,  # Exclude user comments to maintain data quality
+            include_links=True       # Keep inline links for context
+        )
+        
+        if not clean_text:
+            return {"error": f"Extraction failed for {url}. Trafilatura could not identify a main text body."}
+            
+        return {
+            "url": url,
+            "content": clean_text
+        }
+        
+    except Exception as e:
+        return {"error": f"An unexpected error occurred during Trafilatura extraction: {str(e)}"}
+
 
 
 @tool

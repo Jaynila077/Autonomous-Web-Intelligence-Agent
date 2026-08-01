@@ -45,8 +45,13 @@ message_trimmer = trim_messages(
 
 class TokenLoggerCallback(BaseCallbackHandler):
     """
-    Real-time token usage logger callback.
+    Real-time token usage and live tool execution logger callback.
     """
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        name = serialized.get("name") if isinstance(serialized, dict) else str(serialized)
+        print(f"\n🔧 [LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
+        print(f"   └─ Parameters : {input_str}\n", flush=True)
+
     def on_llm_end(self, response, **kwargs):
         for generations in response.generations:
             for gen in generations:
@@ -56,11 +61,11 @@ class TokenLoggerCallback(BaseCallbackHandler):
                     prompt_tok = token_usage.get("prompt_tokens") or token_usage.get("prompt_eval_count") or "N/A"
                     compl_tok = token_usage.get("completion_tokens") or token_usage.get("eval_count") or "N/A"
                     total_tok = token_usage.get("total_tokens") or "N/A"
-                    print(f"\n⚡ [LLM Token Usage Report]")
-                    print(f"   ├─ Prompt Tokens     : {prompt_tok}")
-                    print(f"   ├─ Completion Tokens : {compl_tok}")
-                    print(f"   ├─ Total Tokens      : {total_tok}")
-                    print(f"   └─ Cost              : $0.00 (100% FREE)\n")
+                    print(f"\n⚡ [LLM Token Usage Report]", flush=True)
+                    print(f"   ├─ Prompt Tokens     : {prompt_tok}", flush=True)
+                    print(f"   ├─ Completion Tokens : {compl_tok}", flush=True)
+                    print(f"   ├─ Total Tokens      : {total_tok}", flush=True)
+                    print(f"   └─ Cost              : $0.00 (100% FREE)\n", flush=True)
 
 
 def _validate_groq_model(model_name: str, api_key: str) -> None:
@@ -234,19 +239,19 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
 
     llm = build_production_llm()
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
-    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
 
     agent = create_deep_agent(
         model=llm,
         backend=backend,
         tools=[],
         system_prompt=(
-            "Lead Orchestrator for AWIS. Delegate research tasks sequentially once: "
-            "1. Planner -- create research plan. "
-            "2. Researcher -- gather raw data across sources. "
-            "3. Verifier -- audit findings. "
-            "4. Reporter -- compile final report and call save_intelligence_report. "
-            "CRITICAL: Once Reporter saves the report, output the final report text and STOP delegating."
+            "Lead Orchestrator for AWIS. Execute all 4 subagent steps sequentially without skipping any step: "
+            "Step 1: Delegate to 'Planner' to generate research plan. "
+            "Step 2: Delegate to 'Researcher' to execute search tools and gather raw facts. "
+            "Step 3: Delegate to 'Verifier' to audit findings. "
+            "Step 4: Delegate to 'Reporter' to compile final report and call save_intelligence_report. "
+            "CRITICAL: You MUST execute Step 1, Step 2, and Step 3 in sequence before calling Reporter! Do NOT skip Researcher!"
         ),
         subagents=[
             {
@@ -289,7 +294,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                     "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
                     "5. Risk, Bottlenecks & Production Trade-offs, "
                     "6. Verified Source Citation Index. "
-                    "Write in thorough markdown depth and call save_intelligence_report to save to disk."
+                    "Write in thorough markdown depth, call save_intelligence_report ONCE, and return the report. Do NOT call save_intelligence_report again."
                 ),
                 "tools": REPORTER_TOOLS,
             },
@@ -330,11 +335,12 @@ def run_pipeline(raw_query: str) -> str:
     final_output = None
     last_error = None
 
+    token_logger = TokenLoggerCallback()
     for attempt in range(1, max_attempts + 1):
         try:
             response = agent.invoke(
                 {"messages": [{"role": "user", "content": clean_query}]},
-                config={"recursion_limit": 50},
+                config={"recursion_limit": 50, "callbacks": [token_logger]},
             )
         except Exception as e:
             last_error = e

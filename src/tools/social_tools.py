@@ -4,6 +4,7 @@ import re
 import requests
 from langchain_core.tools import tool
 from typing import List, Dict, Any
+from src.tools.cache_manager import cache_result
 
 DEFAULT_TIMEOUT = 10
 
@@ -15,82 +16,28 @@ def _strip_html(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-@tool
-def search_reddit(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches Reddit public posts for discussion & community opinions."""
-    headers = {"User-Agent": "AWIS-OSINT-Agent/2.0"}
-    try:
-        resp = requests.get(
-            "https://www.reddit.com/search.json",
-            params={"q": query, "limit": limit, "sort": "relevance"},
-            headers=headers,
-            timeout=DEFAULT_TIMEOUT,
-        )
-        resp.raise_for_status()
-        results = []
-        for child in resp.json().get("data", {}).get("children", []):
-            d = child.get("data", {})
-            results.append({
-                "title": d.get("title", ""),
-                "url": "https://www.reddit.com" + d.get("permalink", ""),
-                "author": d.get("author"),
-                "score": d.get("score"),
-                "selftext": (d.get("selftext") or "")[:300],
-                "subreddit": d.get("subreddit"),
-                "source_platform": "Reddit"
-            })
-        return results
-    except Exception as e:
-        return [{"error": f"Reddit search error: {str(e)}"}]
-
-
-@tool
-def search_bluesky(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches Bluesky (AT Protocol) posts."""
-    headers = {"User-Agent": "AWIS-OSINT-Agent/2.0"}
-    try:
-        resp = requests.get(
-            "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
-            params={"q": query, "limit": limit},
-            headers=headers,
-            timeout=DEFAULT_TIMEOUT,
-        )
-        resp.raise_for_status()
-        results = []
-        for post in resp.json().get("posts", []):
-            author = post.get("author", {}).get("handle", "")
-            text = post.get("record", {}).get("text", "")
-            results.append({
-                "title": text[:80] if text else "(no text)",
-                "text": text,
-                "author": author,
-                "likes": post.get("likeCount"),
-                "source_platform": "Bluesky"
-            })
-        return results
-    except Exception as e:
-        return [{"error": f"Bluesky search error: {str(e)}"}]
-
-
-@tool
-def search_mastodon(query: str, instance: str = "mastodon.social", limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches Mastodon public posts on a specified instance."""
+@cache_result(expire=3600, prefix="mastodon")
+def _fetch_mastodon(query: str, max_results: int = 10, instance: str = "mastodon.social") -> List[Dict[str, Any]]:
     try:
         resp = requests.get(
             f"https://{instance}/api/v2/search",
-            params={"q": query, "type": "statuses", "limit": limit},
+            params={"q": query, "type": "statuses", "limit": max_results},
             timeout=DEFAULT_TIMEOUT,
         )
         resp.raise_for_status()
         results = []
         for status in resp.json().get("statuses", []):
             content = _strip_html(status.get("content", ""))
+            account = status.get("account", {})
             results.append({
-                "preview": content[:100],
+                "title": content[:80],
+                "author": account.get("acct"),
+                "created": status.get("created_at"),
+                "favourites": status.get("favourites_count"),
+                "reblogs": status.get("reblogs_count"),
+                "text": content,
                 "url": status.get("url", ""),
-                "author": status.get("account", {}).get("acct"),
-                "content": content,
-                "source_platform": f"Mastodon ({instance})"
+                "source_platform": f"Mastodon ({instance})",
             })
         return results
     except Exception as e:
@@ -98,13 +45,33 @@ def search_mastodon(query: str, instance: str = "mastodon.social", limit: int = 
 
 
 @tool
-def search_lemmy(query: str, instance: str = "lemmy.world", limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches Lemmy fediverse community posts."""
+def search_mastodon(query: str, max_results: int = 10, instance: str = "mastodon.social") -> List[Dict[str, Any]]:
+    """
+    Searches public statuses (posts) on a single Mastodon instance (cached 1h).
+    Use this tool for open-source/tech-community sentiment or discussion on a topic.
+    No API key required. Note: Mastodon is federated, so this only searches the given
+    instance's index, not the whole fediverse.
+
+    Args:
+        query: The search topic or keywords.
+        max_results: Maximum number of statuses to retrieve (default is 10).
+        instance: The Mastodon instance host to search (default is 'mastodon.social').
+
+    Returns:
+        List of dictionaries with post metadata and full post text (Mastodon posts
+        are inherently short, so 'text' is not truncated), plus favourites/reblogs
+        counts as credibility/recency signal.
+    """
+    return _fetch_mastodon(query=query, max_results=max_results, instance=instance)
+
+
+@cache_result(expire=3600, prefix="lemmy")
+def _fetch_lemmy(query: str, max_results: int = 10, instance: str = "lemmy.world") -> List[Dict[str, Any]]:
     headers = {"User-Agent": "AWIS-OSINT-Agent/2.0"}
     try:
         resp = requests.get(
             f"https://{instance}/api/v3/search",
-            params={"q": query, "type_": "Posts", "sort": "TopAll", "limit": limit},
+            params={"q": query, "type_": "Posts", "sort": "TopAll", "limit": max_results},
             headers=headers,
             timeout=DEFAULT_TIMEOUT,
         )
@@ -112,12 +79,22 @@ def search_lemmy(query: str, instance: str = "lemmy.world", limit: int = 5) -> L
         results = []
         for item in resp.json().get("posts", []):
             post = item.get("post", {})
+            counts = item.get("counts", {})
+            creator = item.get("creator", {})
+            community = item.get("community", {})
+            body = post.get("body") or ""
+            preview = body[:300] + "..." if len(body) > 300 else body
             results.append({
                 "title": post.get("name", ""),
+                "author": creator.get("name"),
+                "created": post.get("published"),
+                "score": counts.get("score"),
+                "community": community.get("name"),
+                "num_comments": counts.get("comments"),
+                "text": preview,
+                "post_id": post.get("id"),
                 "url": post.get("ap_id", ""),
-                "author": item.get("creator", {}).get("name"),
-                "body": (post.get("body") or "")[:300],
-                "source_platform": f"Lemmy ({instance})"
+                "source_platform": f"Lemmy ({instance})",
             })
         return results
     except Exception as e:
@@ -125,58 +102,25 @@ def search_lemmy(query: str, instance: str = "lemmy.world", limit: int = 5) -> L
 
 
 @tool
-def search_tumblr(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches Tumblr posts by tag. Requires TUMBLR_API_KEY."""
-    api_key = os.environ.get("TUMBLR_API_KEY")
-    if not api_key:
-        return [{"error": "TUMBLR_API_KEY environment variable is not set."}]
+def search_lemmy(query: str, max_results: int = 10, instance: str = "lemmy.world") -> List[Dict[str, Any]]:
+    """
+    Searches posts on a single Lemmy instance (a federated, Reddit-like platform) (cached 1h).
+    Use this tool as an additional public-discussion source alongside Reddit, especially
+    for more technical/open-source-leaning communities. To read a post's comments,
+    pass the returned 'post_id' into extract_lemmy_post, along with this same 'instance'
+    value if you did not use the default.
+    No API key required. Note: Lemmy is federated, so this only searches the given
+    instance's index, not every Lemmy community.
 
-    tag = query.strip().replace(" ", "")
-    try:
-        resp = requests.get(
-            "https://api.tumblr.com/v2/tagged",
-            params={"tag": tag, "api_key": api_key, "limit": limit},
-            timeout=DEFAULT_TIMEOUT,
-        )
-        resp.raise_for_status()
-        results = []
-        for post in resp.json().get("response", []):
-            body = _strip_html(post.get("summary") or post.get("caption") or "")
-            results.append({
-                "title": body[:80] or "(untitled post)",
-                "url": post.get("post_url", ""),
-                "author": post.get("blog_name"),
-                "source_platform": "Tumblr"
-            })
-        return results
-    except Exception as e:
-        return [{"error": f"Tumblr API error: {str(e)}"}]
+    Args:
+        query: The search topic or keywords.
+        max_results: Maximum number of posts to retrieve (default is 10).
+        instance: The Lemmy instance host to search (default is 'lemmy.world').
 
-
-@tool
-def search_vk(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Searches VKontakte (VK) newsfeed posts. Requires VK_ACCESS_TOKEN."""
-    token = os.environ.get("VK_ACCESS_TOKEN")
-    if not token:
-        return [{"error": "VK_ACCESS_TOKEN environment variable is not set."}]
-
-    params = {"q": query, "count": limit, "access_token": token, "v": "5.199"}
-    try:
-        resp = requests.get("https://api.vk.com/method/newsfeed.search", params=params, timeout=DEFAULT_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        if "error" in data:
-            return [{"error": f"VK error: {data['error'].get('error_msg')}"}]
-
-        results = []
-        for item in data.get("response", {}).get("items", []):
-            text = item.get("text", "")
-            results.append({
-                "title": text[:80] if text else "(no text)",
-                "url": f"https://vk.com/wall{item.get('owner_id')}_{item.get('id')}",
-                "text": text[:300],
-                "source_platform": "VKontakte"
-            })
-        return results
-    except Exception as e:
-        return [{"error": f"VK API error: {str(e)}"}]
+    Returns:
+        List of dictionaries with post metadata, including 'post_id' for use with
+        extract_lemmy_post, and a capped (~300 char) preview of the post body --
+        the full post plus top comments are only fetched on demand via
+        extract_lemmy_post.
+    """
+    return _fetch_lemmy(query=query, max_results=max_results, instance=instance)
