@@ -1,12 +1,12 @@
 import os
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, Any
+from sqlmodel import Session, select
 
-from core.main import build_awis_agent
+from src.core.main import build_awis_agent
 from src.api.schemas import JobStatus
+from src.api.database import engine, Job
 
-job_state_store: Dict[str, Dict[str, Any]] = {}
 
 def _sync_pipeline_runner(user_id: str, job_id: str, query: str) -> str:
     """
@@ -21,39 +21,43 @@ async def execute_agent_pipeline(job_id: str, user_id: str, query: str):
     Asynchronous background task that runs the AWIS pipeline off the main event loop.
     """
     now = datetime.now(timezone.utc)
-    job_state_store[job_id] = {
-        "job_id": job_id,
-        "user_id": user_id,
-        "status": JobStatus.PLANNING,
-        "current_agent": "Planner",
-        "report_url": None,
-        "error_message": None,
-        "created_at": now,
-        "updated_at": now
-    }
+   # 1. Update DB state to PLANNING / RESEARCHING
+    with Session(engine) as db:
+        job = db.get(Job, job_id)
+        if job:
+            job.status = JobStatus.RESEARCHING
+            job.current_agent = "Researcher"
+            job.updated_at = now
+            db.add(job)
+            db.commit()
 
     try:
-        job_state_store[job_id]["status"] = JobStatus.RESEARCHING
-        job_state_store[job_id]["current_agent"] = "Researcher"
-        job_state_store[job_id]["updated_at"] = datetime.now(timezone.utc)
-
+        # 2. Run heavy synchronous agent workflow on background thread
         report_path = await asyncio.to_thread(_sync_pipeline_runner, user_id, job_id, query)
 
         if not os.path.exists(report_path):
             raise FileNotFoundError(f"Expected report at {report_path}, but file was not created.")
 
-        job_state_store[job_id].update({
-            "status": JobStatus.COMPLETED,
-            "current_agent": "Reporter",
-            "report_path": report_path,
-            "report_url": f"/api/v1/queries/{job_id}/report",
-            "updated_at": datetime.now(timezone.utc)
-        })
+        # 3. Update DB state to COMPLETED
+        with Session(engine) as db:
+            job = db.get(Job, job_id)
+            if job:
+                job.status = JobStatus.COMPLETED
+                job.current_agent = "Reporter"
+                job.report_path = report_path
+                job.report_url = f"/api/v1/queries/{job_id}/report"
+                job.updated_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
 
     except Exception as exc:
-        job_state_store[job_id].update({
-            "status": JobStatus.FAILED,
-            "current_agent": None,
-            "error_message": str(exc),
-            "updated_at": datetime.now(timezone.utc)
-        })
+        # 4. Handle errors gracefully in DB
+        with Session(engine) as db:
+            job = db.get(Job, job_id)
+            if job:
+                job.status = JobStatus.FAILED
+                job.current_agent = None
+                job.error_message = str(exc)
+                job.updated_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
