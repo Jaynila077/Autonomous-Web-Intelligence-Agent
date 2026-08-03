@@ -775,17 +775,15 @@ def run_pipeline(raw_query: str) -> str:
     clean_query = re.sub(r'\s+', ' ', raw_query).strip()
     if not clean_query:
         return "Error: Empty query provided."
-    try:
-        return _run_pipeline_core(clean_query)
-    finally:
-        # Clears workspace/raw/ so the next run starts clean. Runs on both
-        # success and failure -- a stale raw/ left behind by a failed run
-        # causes the exact same "already exists" collision with the next run
-        # as one left behind by a successful run.
-        _clear_raw_dir()
 
+    # Clear workspace/raw/ (plan.md, research.md, research_raw.md, verified.md)
+    # at the START of each run, before anything else happens. This replaces the
+    # reactive "already exists, stop" guards in each subagent's prompt with a
+    # proper fix, and -- unlike clearing at the end -- leaves a failed run's
+    # raw/ files on disk for inspection right up until the next run actually
+    # starts, instead of wiping them the moment the failed run finishes.
+    _clear_raw_dir()
 
-def _run_pipeline_core(clean_query: str) -> str:
     stats = cache_manager.get_stats()
     print("=" * 60)
     print("       AWIS Production Web Intelligence Pipeline            ")
