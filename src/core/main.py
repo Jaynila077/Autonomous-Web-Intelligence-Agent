@@ -67,7 +67,7 @@ from src.tools.cache_manager import cache_manager
 # 272K profile) -- confirmed via model.profile that it never engaged in the
 # runs that exhibited this loop, since total usage peaked around 80K tokens.
 message_trimmer = trim_messages(
-    max_tokens=30000,
+    max_tokens=40000,
     strategy="last",
     token_counter="approximate",
     include_system=True,
@@ -575,7 +575,7 @@ def build_production_llm(token_logger: "TokenLoggerCallback"):
     # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
-        model_name = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+        model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
         _announce_provider("NVIDIA NIM", model_name)
         token_logger.configure(provider_label="NVIDIA NIM", model_name=model_name)
         return TrimmedChatOpenAI(
@@ -675,7 +675,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
 
     llm = build_production_llm(token_logger)
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
-    dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
 
     # Hard cap on Researcher's domain tool calls. This is enforced in code, not
     # just via the system prompt below -- the model can (and on weaker fallback
@@ -708,7 +708,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             "1. Delegate to Planner. It writes raw/plan.md.\n"
             "2. Delegate to Researcher. Tell it to read raw/plan.md and cover all 4 "
             "dimensions in it. It writes raw/research.md.\n"
-            "3. Delegate to Verifier. Tell it to read raw/research.md and write raw/verified.md.\n"
+            "3. Delegate to Verifier. Tell it to read raw/research_raw.md and raw/research.md and write raw/verified.md.\n"
             "4. Delegate to Reporter. Tell it to read raw/research.md and raw/verified.md, "
             "then call save_intelligence_report.\n\n"
 
@@ -720,27 +720,16 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             "  - Before Verifier: call ls('/raw/'). verified.md listed -> skip to step 4.\n"
             "  - Before Reporter: ALWAYS delegate, no check needed. Reporter's output "
             "is a saved report, not a file in raw/ -- there is nothing to ls() for. "
-            "verified.md being present means Verifier is done. It does NOT mean "
-            "Reporter is done and it does NOT mean the pipeline is done.\n"
             "Never call ls('/raw/') more than once per stage decision.\n\n"
-            "RULE 2 -- Never write the raw files yourself, and never write the "
-            "final report yourself.\n"
+            "RULE 2 -- Never write the raw files yourself.\n"
             "Never write_file or edit_file on raw/plan.md, raw/research.md, or "
             "raw/verified.md -- not even to fix or tidy one up. Only Planner, Researcher, "
             "and Verifier write these, via task(). Your filesystem tool use is read-only "
-            "(ls, read_file). You are also NEVER allowed to compose or output an "
-            "intelligence report yourself, in any form, as your final message or "
-            "otherwise -- only Reporter, via save_intelligence_report, produces the "
-            "report. Seeing plan.md, research.md, and verified.md all present does "
-            "NOT mean you have enough to write the report -- it means stages 1-3 are "
-            "done and stage 4 (Reporter) still has not run.\n\n"
-            "RULE 3 -- Stop only after Reporter's task() call returns.\n"
-            "You are not finished, and must not produce a final message, until you "
-            "have delegated to Reporter via task() AND that call has returned. The "
-            "moment it returns, the pipeline is over: do nothing else -- no ls, no "
-            "read_file, no writing. Return Reporter's report text as your own final "
-            "message and stop. If you have not yet called task() targeting Reporter "
-            "in this run, you are not done, no matter what raw/ contains.\n\n"
+            "(ls, read_file).\n\n"
+            "RULE 3 -- Stop the instant Reporter returns.\n"
+            "The moment Reporter's task() call returns, the pipeline is over. Do nothing "
+            "else -- no ls, no read_file, no writing. Return Reporter's report text as your "
+            "own final message and stop.\n\n"
         ),
         subagents=[
             {
@@ -750,6 +739,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     f"TOPIC: '{query}'.\n\n"
                     "Write a short 4-part research plan covering: Academic, Web/Wiki, "
                     "Developer code, Community opinion. Be short and direct\n"
+
                     "Call write_file to save it as raw/plan.md.\n"
                     "Then return the plan as your final message."
                 ),
@@ -794,8 +784,6 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Audits Researcher's synthesis for fidelity to the raw retrieved data (no search tools).",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
-                    "Call only one tool at a time. After each tool call finishes, look at "
-                    "its result before deciding what to call next.\n\n"
                     "1. Call read_file on raw/research_raw.md (the unedited record of "
                     "every tool call Researcher made).\n"
                     "2. Call read_file on raw/research.md (Researcher's write-up).\n"
@@ -817,8 +805,6 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Synthesizes final comprehensive intelligence brief.",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
-                    "Call only one tool at a time. After each tool call finishes, look at "
-                    "its result before deciding what to call next.\n\n"
                     "1. Call read_file on raw/research.md. Then call read_file on "
                     "raw/verified.md. Base your report only on these two files.\n"
                     "2. Write a report with these 6 sections, using real facts, dates, "
