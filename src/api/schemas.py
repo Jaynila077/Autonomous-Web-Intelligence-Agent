@@ -1,6 +1,6 @@
 # src/api/schemas.py
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime
 
@@ -45,3 +45,18 @@ class JobSubmitResponse(BaseModel):
     status: JobStatus = JobStatus.QUEUED
     status_stream_url: str
     report_download_url: str
+
+class UserRegisterRequest(BaseModel):
+    email: EmailStr = Field(..., example="user@example.com")
+    password: str = Field(..., min_length=8, description="Password must be at least 8 characters long.")
+
+
+class UserLoginRequest(BaseModel):
+    email: EmailStr = Field(..., example="user@example.com")
+    password: str = Field(...)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
