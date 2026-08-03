@@ -66,7 +66,7 @@ from src.tools.cache_manager import cache_manager
 # 272K profile) -- confirmed via model.profile that it never engaged in the
 # runs that exhibited this loop, since total usage peaked around 80K tokens.
 message_trimmer = trim_messages(
-    max_tokens=20000,
+    max_tokens=30000,
     strategy="last",
     token_counter="approximate",
     include_system=True,
@@ -508,7 +508,7 @@ def build_production_llm(token_logger: "TokenLoggerCallback"):
     # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
-        model_name = os.getenv("NVIDIA_MODEL", "openai/gpt-oss-120b")
+        model_name = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b")
         _announce_provider("NVIDIA NIM", model_name)
         token_logger.configure(provider_label="NVIDIA NIM", model_name=model_name)
         return TrimmedChatOpenAI(
@@ -517,7 +517,8 @@ def build_production_llm(token_logger: "TokenLoggerCallback"):
             openai_api_base="https://integrate.api.nvidia.com/v1",
             temperature=0.0,
             max_retries=5,
-            callbacks=[token_logger]
+            callbacks=[token_logger],
+            extra_body={"chat_template_kwargs":{"enable_thinking":True},"reasoning_budget":16384}
         )
 
     # 2. Secondary Option: Groq LPU
@@ -615,6 +616,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
         tools=[],
         system_prompt=(
             f"Lead Orchestrator for AWIS. TOPIC: '{query}'.\n\n"
+            
             "Run these 4 stages in this exact order, one at a time:\n"
             "1. Delegate to Planner. It writes raw/plan.md.\n"
             "2. Delegate to Researcher. Tell it to read raw/plan.md and cover all 4 "
@@ -622,8 +624,21 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             "3. Delegate to Verifier. Tell it to read raw/research.md and write raw/verified.md.\n"
             "4. Delegate to Reporter. Tell it to read raw/research.md and raw/verified.md, "
             "then call save_intelligence_report.\n\n"
-            "Do not skip a stage. Do not do research or writing yourself — only delegate.\n"
-            "As soon as Reporter finishes, return its report as your final answer and stop."
+
+            "RULE 1 -- Check before delegating.\n"
+            "Before each stage: call ls('/raw/') ONCE.\n"
+            "- Stage's output file already listed -> stage is done, move to next stage.\n"
+            "- Not listed -> delegate now.\n"
+            "Do not call ls('/raw/') twice for the same stage decision.\n\n"
+            "RULE 2 -- Never write the raw files yourself.\n"
+            "Never write_file or edit_file on raw/plan.md, raw/research.md, or "
+            "raw/verified.md -- not even to fix or tidy one up. Only Planner, Researcher, "
+            "and Verifier write these, via task(). Your filesystem tool use is read-only "
+            "(ls, read_file).\n\n"
+            "RULE 3 -- Stop the instant Reporter returns.\n"
+            "The moment Reporter's task() call returns, the pipeline is over. Do nothing "
+            "else -- no ls, no read_file, no writing. Return Reporter's report text as your "
+            "own final message and stop.\n\n"
         ),
         subagents=[
             {
@@ -632,7 +647,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
                     "Write a short 4-part research plan covering: Academic, Web/Wiki, "
-                    "Developer code, Community opinion.\n"
+                    "Developer code, Community opinion. Be short and direct\n"
                     "Call write_file to save it as raw/plan.md.\n"
                     "Then return the plan as your final message."
                 ),
@@ -648,10 +663,19 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "1. Call read_file on raw/plan.md.\n"
                     "2. Research all 4 parts of the plan, one tool call at a time: "
                     "Academic, Web/Wiki, Developer code, Community opinion.\n"
-                    "3. Write everything you found — facts, dates, paper links, repo "
-                    "links — plus a short summary of your findings, to raw/research.md "
-                    "using write_file.\n\n"
-                    "If a tool fails, skip it and keep going with the others."
+                    "3: Run your research tools to gather facts, paper abstracts, "
+                    "paper URLs, arXiv IDs, and code repo links. Every tool call you make "
+                    "is automatically captured to raw/research_raw.md for you -- you do "
+                    "not need to transcribe or copy tool output anywhere yourself.\n\n"
+                    "Step 4: If a tool errors, ignore that tool and keep using the others. "
+                    "Do not browse the VFS for substitute data. Your only VFS actions this "
+                    "step: read raw/plan.md, write raw/research.md.\n\n"
+                    "Step 5: Write raw/research.md. This is your synthesis: readable prose "
+                    "covering every hard number, date, paper link, repo URL you "
+                    "found and a brief conclusion based on your findings.\n\n"
+                    "If write_file says raw/research.md already exists: stop. Do not "
+                    "retry, do not edit."
+
                 ),
                 "tools": dynamic_research_tools,
             },
@@ -673,6 +697,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "for fidelity to research_raw.md.\n\n"
                     "Call write_file to save your findings as raw/verified.md. Then "
                     "return them as your final message."
+                    "If write_file says raw/verified.md already exists: stop. Do not "
+                    "retry the write."
                 ),
                 "tools": VERIFIER_TOOLS,
             },
