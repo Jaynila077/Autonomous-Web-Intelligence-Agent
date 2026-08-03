@@ -508,7 +508,7 @@ def build_production_llm(token_logger: "TokenLoggerCallback"):
     # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
-        model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+        model_name = os.getenv("NVIDIA_MODEL", "openai/gpt-oss-120b")
         _announce_provider("NVIDIA NIM", model_name)
         token_logger.configure(provider_label="NVIDIA NIM", model_name=model_name)
         return TrimmedChatOpenAI(
@@ -623,7 +623,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             "4. Delegate to Reporter. Tell it to read raw/research.md and raw/verified.md, "
             "then call save_intelligence_report.\n\n"
             "Do not skip a stage. Do not do research or writing yourself — only delegate.\n"
-            "As soon as Reporter finishes, return its report as your final answer and stop."        ),
+            "As soon as Reporter finishes, return its report as your final answer and stop."
+        ),
         subagents=[
             {
                 "name": "Planner",
@@ -642,13 +643,14 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Gathers raw data across specialized tools.",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
+                    "Call only one tool at a time. After each tool call finishes, look at "
+                    "its result before deciding what to call next.\n\n"
                     "1. Call read_file on raw/plan.md.\n"
-                    "2. Use your tools to research all 4 parts of the plan: Academic, "
-                    "Web/Wiki, Developer code, Community opinion.\n"
+                    "2. Research all 4 parts of the plan, one tool call at a time: "
+                    "Academic, Web/Wiki, Developer code, Community opinion.\n"
                     "3. Write everything you found — facts, dates, paper links, repo "
-                    "links - as well as a summary conclusion of your findings — to raw/research.md using write_file.\n"
-                    "4. Return the short summary as your final message. \n\n"
-                    "Only call one tool at a time, wait for it to finish, then call the next. Do not call tools in parallel."
+                    "links — plus a short summary of your findings, to raw/research.md "
+                    "using write_file.\n\n"
                     "If a tool fails, skip it and keep going with the others."
                 ),
                 "tools": dynamic_research_tools,
@@ -658,6 +660,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Audits Researcher's synthesis for fidelity to the raw retrieved data (no search tools).",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
+                    "Call only one tool at a time. After each tool call finishes, look at "
+                    "its result before deciding what to call next.\n\n"
                     "1. Call read_file on raw/research_raw.md (the unedited record of "
                     "every tool call Researcher made).\n"
                     "2. Call read_file on raw/research.md (Researcher's write-up).\n"
@@ -669,7 +673,6 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "for fidelity to research_raw.md.\n\n"
                     "Call write_file to save your findings as raw/verified.md. Then "
                     "return them as your final message."
-                    "Only call one tool at a time, wait for it to finish, then call the next. Do not call tools in parallel."
                 ),
                 "tools": VERIFIER_TOOLS,
             },
@@ -678,9 +681,10 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Synthesizes final comprehensive intelligence brief.",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
-                    "1. Call read_file on raw/research.md. after getting its content, "
-                    "call read_file on raw/verified.md. Base your "
-                    "report only on these two files.\n"
+                    "Call only one tool at a time. After each tool call finishes, look at "
+                    "its result before deciding what to call next.\n\n"
+                    "1. Call read_file on raw/research.md. Then call read_file on "
+                    "raw/verified.md. Base your report only on these two files.\n"
                     "2. Write a report with these 6 sections, using real facts, dates, "
                     "paper links, and repo links from the files:\n"
                     "1. Executive Summary & Core Insights\n"
@@ -692,8 +696,6 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "3. Call save_intelligence_report ONCE with the full report.\n\n"
                     "Once save_intelligence_report succeeds, stop — do not call it again "
                     "and do not keep editing."
-                    "Only call one tool at a time, wait for it to finish, then call the next. Do not call tools in parallel."
-
                 ),
                 "tools": REPORTER_TOOLS,
             },
