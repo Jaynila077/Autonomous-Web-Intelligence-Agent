@@ -2,11 +2,11 @@
 import uuid
 import os
 import asyncio
-from typing import AsyncGenerator
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Depends, status
+from typing import AsyncGenerator, Optional
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Depends, Query, status
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from src.api.schemas import (
     QuerySubmitRequest,
@@ -16,27 +16,35 @@ from src.api.schemas import (
 )
 from src.api.database import engine, get_session, Job
 from src.api.worker import execute_agent_pipeline
+from src.api.auth import decode_access_token
 
 router = APIRouter(prefix="/api/v1/queries", tags=["Queries"])
 
 
-def get_current_user_id(authorization: str = Header(default="usr_demo")) -> str:
+def get_current_user_id(
+    authorization: Optional[str] = Header(default=None),
+    token: Optional[str] = Query(default=None),
+) -> str:
     """
-    Centralized identity resolution dependency. 
-    Acts as an extensible stub until full JWT authentication arrives in Phase 3.
+    Extracts and verifies JWT access token.
+    1. Checks 'Authorization: Bearer <token>' header.
+    2. Falls back to '?token=<token>' query parameter (for SSE EventSource API compatibility).
     """
-    if not authorization:
+    raw_token = None
+
+    if authorization and authorization.startswith("Bearer "):
+        raw_token = authorization.replace("Bearer ", "").strip()
+    elif token:
+        raw_token = token.strip()
+
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
+            detail="Authentication token required. Supply via Authorization header or ?token= query parameter.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    user_id = authorization.replace("Bearer ", "").strip()
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or empty user authorization identity",
-        )
-    return user_id
+
+    return decode_access_token(raw_token)
 
 
 @router.post("/", response_model=JobSubmitResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -78,10 +86,8 @@ async def stream_job_status(
     current_user_id: str = Depends(get_current_user_id),
 ):
     """
-    Streams job status over SSE while enforcing single-tenant access boundaries.
-    Uses `engine` directly to avoid session leaks.
+    Streams job status over SSE. Accepts JWT via header or ?token= query param.
     """
-    # 1. Initial permission & existence check using engine directly
     with Session(engine) as db:
         job = db.get(Job, job_id)
         if not job:
@@ -95,7 +101,6 @@ async def stream_job_status(
     async def status_event_generator() -> AsyncGenerator[dict, None]:
         last_status = None
         while True:
-            # 2. Polling loop using engine directly (prevents connection pool exhaustion)
             with Session(engine) as db:
                 current_job = db.get(Job, job_id)
                 if not current_job:
@@ -122,7 +127,7 @@ async def stream_job_status(
                 if current_status in [JobStatus.COMPLETED, JobStatus.FAILED]:
                     break
 
-            await asyncio.sleep(1.0)  # SSE Poll interval
+            await asyncio.sleep(1.0)
 
     return EventSourceResponse(status_event_generator())
 
