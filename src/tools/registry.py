@@ -37,12 +37,19 @@ RESEARCHER_TOOLS = [
     extract_pdf_with_pdfplumber,
 ]
 
-VERIFIER_TOOLS = [
-    fetch_wiki_data,
-    search_tavily,
-    search_stackexchange,
-    search_arxiv,
-]
+VERIFIER_TOOLS = []
+# Decision: Verifier gets NO live search/API tools. Two prior runs proved that giving
+# Verifier search access causes it to abandon verification and do fresh research instead
+# (one run burned ~36% of total tokens on Verifier searching instead of auditing) -- an
+# open-ended "verify this" instruction plus search access structurally invites "do more
+# research" as the path of least resistance, and this model doesn't reliably hold a
+# narrower instruction than that. Removing the tools removes the temptation. Verifier
+# still gets a real fidelity check via raw/research_raw.md (see Researcher's prompt in
+# main.py) instead of tool access -- see its system_prompt in build_awis_agent().
+# NOTE: an empty tools list here does NOT remove deepagents' own built-in filesystem
+# tools (read_file/write_file/ls/etc.) -- those remain available regardless (confirmed
+# elsewhere in this codebase with Planner, which also has tools=[]), so Verifier keeps
+# read/write access to the VFS.
 
 REPORTER_TOOLS = [
     save_intelligence_report,

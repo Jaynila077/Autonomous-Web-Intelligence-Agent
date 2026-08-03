@@ -100,24 +100,6 @@ def _strip_orphaned_tool_messages(messages: list) -> list:
 
 class TokenLoggerCallback(BaseCallbackHandler):
     """
-<<<<<<< Updated upstream
-    Real-time token usage logger callback.
-    """
-    def on_llm_end(self, response, **kwargs):
-        for generations in response.generations:
-            for gen in generations:
-                info = getattr(gen, "generation_info", {}) or {}
-                token_usage = info.get("token_usage") or info.get("usage")
-                if token_usage:
-                    prompt_tok = token_usage.get("prompt_tokens") or token_usage.get("prompt_eval_count") or "N/A"
-                    compl_tok = token_usage.get("completion_tokens") or token_usage.get("eval_count") or "N/A"
-                    total_tok = token_usage.get("total_tokens") or "N/A"
-                    print(f"\n⚡ [LLM Token Usage Report]")
-                    print(f"   ├─ Prompt Tokens     : {prompt_tok}")
-                    print(f"   ├─ Completion Tokens : {compl_tok}")
-                    print(f"   ├─ Total Tokens      : {total_tok}")
-                    print(f"   └─ Cost              : $0.00 (100% FREE)\n")
-=======
     Per-LLM-call analysis logger.
 
     For EVERY LLM call anywhere in the pipeline (orchestrator + all 4 subagents),
@@ -286,7 +268,6 @@ class TokenLoggerCallback(BaseCallbackHandler):
                 f.write(json.dumps(record) + "\n")
         except Exception as e:
             print(f"WARNING: could not write LLM call log record: {e}", flush=True)
->>>>>>> Stashed changes
 
 
 def _validate_groq_model(model_name: str, api_key: str) -> None:
@@ -557,66 +538,56 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
 
     llm = build_production_llm(token_logger)
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
-    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
 
     agent = create_deep_agent(
         model=llm,
         backend=backend,
         tools=[],
         system_prompt=(
-<<<<<<< Updated upstream
-            "Lead Orchestrator for AWIS. Delegate research tasks sequentially once: "
-            "1. Planner -- create research plan. "
-            "2. Researcher -- gather raw data across sources. "
-            "3. Verifier -- audit findings. "
-            "4. Reporter -- compile final report and call save_intelligence_report. "
-            "CRITICAL: Once Reporter saves the report, output the final report text and STOP delegating."
-=======
-            f"Lead Orchestrator for AWIS. TARGET RESEARCH TOPIC: '{query}'. "
-            "This is the ONLY topic you are researching -- never ask the user what to "
-            "research, and if any subagent's output seems to have lost track of it, "
-            "restate this exact topic to them. "
-            "Execute all 4 subagent steps sequentially without skipping any step. Each "
-            "subagent hands off its work via the shared VFS, not through you -- when you "
-            "delegate, tell each subagent exactly which file to read and which file to write. "
-            "RULE 1 -- never redo a finished step: do not rely on your own memory of which "
-            "steps are already done -- that memory is unreliable over a long run. Before EVERY "
-            "single task() call, you MUST first call ls('/raw/') and look at the exact list of "
-            "filenames it returns. If the step's output filename is already in that list, the "
-            "step is DONE -- do not call task() for it again, move straight to the next step. "
-            "Call ls('/raw/') again before every delegation, even the very next one -- never "
-            "trust a check you did earlier in the run. "
-            "RULE 2 -- delegate, never do the work yourself: you have filesystem tools "
-            "available, but you must NEVER call write_file on raw/plan.md, raw/research.md, or "
-            "raw/verified.md yourself. Those three files may only be written by the Planner, "
-            "Researcher, and Verifier subagents respectively, via task(). Your own filesystem "
-            "tool use is READ-ONLY (ls/read_file), only to check which steps are done. "
-            "RULE 3 -- stop immediately once done: the pipeline ends the moment the Reporter "
-            "subagent returns from its task() call (it will have already called "
-            "save_intelligence_report itself). At that point, take NO further actions -- do not "
-            "call ls, do not read anything from /reports, do not write anything else. Simply "
-            "return the Reporter's report text as your own final message and stop. "
-            "Step 1: Delegate to 'Planner' -- it must write its plan to raw/plan.md. Skip if raw/plan.md already exists. "
-            "Step 2: Delegate to 'Researcher' -- tell it to read raw/plan.md first, then write its findings to raw/research.md. Skip if raw/research.md already exists. "
-            "Step 3: Delegate to 'Verifier' -- tell it to read raw/research.md first (not go hunting), then write its audit to raw/verified.md. Skip if raw/verified.md already exists. "
-            "Step 4: Delegate to 'Reporter' -- tell it to read both raw/research.md and raw/verified.md before compiling the report and calling save_intelligence_report. Then STOP (see RULE 3). "
-            "CRITICAL: You MUST execute Step 1, Step 2, and Step 3 in sequence before calling Reporter! Do NOT skip Researcher!"
->>>>>>> Stashed changes
+            f"Lead Orchestrator for AWIS.\n"
+            f"TOPIC: '{query}'. Never ask what to research. If a subagent seems to have "
+            "lost the topic, restate this exact topic to it.\n\n"
+            "Run 4 stages in order: PLAN -> RESEARCH -> VERIFY -> REPORT. Never call them "
+            "\"Step 1/2/3/4\" -- that phrase means something else inside the plan document "
+            "itself.\n\n"
+            "RULE 1 -- Check before delegating.\n"
+            "Before each stage: call ls('/raw/') ONCE.\n"
+            "- Stage's output file already listed -> stage is done, move to next stage.\n"
+            "- Not listed -> delegate now.\n"
+            "Do not call ls('/raw/') twice for the same stage decision.\n\n"
+            "RULE 2 -- Never write the raw files yourself.\n"
+            "Never write_file or edit_file on raw/plan.md, raw/research.md, or "
+            "raw/verified.md -- not even to fix or tidy one up. Only Planner, Researcher, "
+            "and Verifier write these, via task(). Your filesystem tool use is read-only "
+            "(ls, read_file).\n\n"
+            "RULE 3 -- Stop the instant Reporter returns.\n"
+            "The moment Reporter's task() call returns, the pipeline is over. Do nothing "
+            "else -- no ls, no read_file, no writing. Return Reporter's report text as your "
+            "own final message and stop.\n\n"
+            "Stage PLAN: delegate to Planner. It writes raw/plan.md.\n"
+            "Stage RESEARCH: delegate to Researcher. Tell it: read raw/plan.md, cover "
+            "every dimension in it (not just one named part), write raw/research.md.\n"
+            "Stage VERIFY: delegate to Verifier. Tell it: read raw/research.md, audit all "
+            "of it, write raw/verified.md.\n"
+            "Stage REPORT: delegate to Reporter. Tell it: read raw/research.md and "
+            "raw/verified.md, then call save_intelligence_report. Apply RULE 3 after.\n\n"
+            "Always do PLAN, RESEARCH, VERIFY in order before REPORT. Never skip RESEARCH."
         ),
         subagents=[
             {
                 "name": "Planner",
                 "description": "Creates structured multi-domain research plan.",
                 "system_prompt": (
-                    f"TARGET RESEARCH TOPIC: '{query}'. "
-                    "Create a concise 4-step research plan covering: "
-                    "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise. "
-                    "Do not spend tool calls checking whether 'raw/plan.md' already exists first -- "
-                    "the orchestrator only delegates this step once, so just do the work directly. "
-                    "Before you finish, call write_file to save this plan to 'raw/plan.md', then "
-                    "return the plan as your final message. If write_file tells you 'raw/plan.md' "
-                    "already exists, that means this step is already done -- do not retry the write, "
-                    "just read_file it and return its contents as your final message."
+                    f"TOPIC: '{query}'.\n\n"
+                    "Write a 4-step research plan covering: Academic, Web/Wiki, Developer "
+                    "code, Community opinion. Be short and direct.\n\n"
+                    "Do not check whether raw/plan.md exists first -- just do the work.\n\n"
+                    "Call write_file to save the plan to raw/plan.md. Then return the plan "
+                    "as your final message.\n\n"
+                    "If write_file says raw/plan.md already exists: stop. Do not retry the "
+                    "write. Call read_file on raw/plan.md and return its contents as your "
+                    "final message instead."
                 ),
                 "tools": [],
             },
@@ -624,36 +595,65 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "name": "Researcher",
                 "description": "Gathers raw data across specialized tools.",
                 "system_prompt": (
-                    f"TARGET RESEARCH TOPIC: '{query}'. "
-                    "First call read_file on 'raw/plan.md' to see the research plan. "
-                    "Execute assigned research tools to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
-                    "If one search tool errors (e.g. a missing API key), ignore it and rely on the "
-                    "results from your other tools -- do NOT go browsing the VFS looking for substitute "
-                    "data; your only VFS interactions this whole step are reading 'raw/plan.md' and "
-                    "writing 'raw/research.md'. "
-                    "Before you finish, call write_file to save your complete findings -- including every "
-                    "hard number, date, paper link, and repo URL you found -- to 'raw/research.md'. "
-                    "Then return a clean, factual summary as your final message. If write_file tells you "
-                    "'raw/research.md' already exists, that means this step is already done -- do not "
-                    "retry the write or edit the file, just read_file it and return its contents as your "
-                    "final message."
+                    f"TOPIC: '{query}'.\n\n"
+                    "Step 1: Call read_file on raw/plan.md.\n\n"
+                    "Step 2: Research ALL FOUR dimensions in that plan: Academic, "
+                    "Web/Wiki, Developer code, Community opinion. Cover all four even if "
+                    "your task description names only one -- the full plan always "
+                    "applies.\n\n"
+                    "Step 3: Run your research tools to gather facts, paper abstracts, "
+                    "paper URLs, arXiv IDs, and code repo links.\n\n"
+                    "Step 4: If a tool errors, ignore that tool and keep using the others. "
+                    "Do not browse the VFS for substitute data. Your only VFS actions this "
+                    "step: read raw/plan.md, write raw/research_raw.md, write "
+                    "raw/research.md.\n\n"
+                    "Step 5: Write raw/research_raw.md FIRST. For EVERY tool call you "
+                    "made, write this exact block, one per call:\n\n"
+                    "Tool: <tool name>\n"
+                    "Args: <args you called it with>\n"
+                    "Result: <paste the full raw output here, character for character>\n\n"
+                    "Rules for the Result line:\n"
+                    "- Paste the tool's actual output. Do not summarize it.\n"
+                    "- Never write \"[N lines truncated]\" or any other placeholder. Paste "
+                    "the real text, however long it is.\n"
+                    "- If a call errored or returned nothing, paste the actual error text, "
+                    "or write \"Result: (empty)\" -- still write the block, don't skip "
+                    "it.\n\n"
+                    "Step 6: Write raw/research.md SECOND. This is your synthesis: "
+                    "readable prose covering every hard number, date, paper link, and "
+                    "repo URL you found.\n\n"
+                    "Step 7: Return a short, factual summary as your final message.\n\n"
+                    "If write_file says raw/research_raw.md or raw/research.md already "
+                    "exists: stop. Do not retry, do not edit. Call read_file on both and "
+                    "return raw/research.md's contents as your final message instead."
                 ),
                 "tools": dynamic_research_tools,
             },
             {
                 "name": "Verifier",
-                "description": "Audits research findings for accuracy.",
+                "description": "Audits Researcher's synthesis for fidelity to the raw retrieved data (no search tools).",
                 "system_prompt": (
-                    f"TARGET RESEARCH TOPIC: '{query}'. "
-                    "First call read_file on 'raw/research.md' to get Researcher's actual findings -- "
-                    "do NOT go looking for them via ls/grep on unrelated files. "
-                    "Audit those findings for credibility, source quality, and technical accuracy. "
-                    "Use assigned search tools only to cross-verify specific claims, not to redo the research. "
-                    "Before you finish, call write_file to save your audit to 'raw/verified.md', then "
-                    "return verified facts concisely as your final message. If write_file tells you "
-                    "'raw/verified.md' already exists, that means this step is already done -- do not "
-                    "retry the write or edit the file, just read_file it and return its contents as your "
-                    "final message."
+                    f"TOPIC: '{query}'.\n\n"
+                    "Step 1: Call read_file on raw/research_raw.md (what was actually "
+                    "retrieved).\n"
+                    "Step 2: Call read_file on raw/research.md (Researcher's synthesis).\n"
+                    "Do not go looking for either file any other way (no ls/grep).\n\n"
+                    "You have no search tools. Do not verify facts against the outside "
+                    "world and do not do new research. Your only job: check research.md "
+                    "is faithful to research_raw.md.\n\n"
+                    "For every claim, number, date, and link in research.md, check it "
+                    "appears in research_raw.md. Flag any claim that is:\n"
+                    "- unsupported by research_raw.md\n"
+                    "- exaggerated beyond what research_raw.md shows\n"
+                    "- missing a source\n\n"
+                    "Also check research.md covers all four plan dimensions (Academic, "
+                    "Web/Wiki, Developer code, Community opinion) -- flag if any are "
+                    "missing.\n\n"
+                    "Call write_file to save your audit to raw/verified.md. Then return "
+                    "your verified facts as your final message.\n\n"
+                    "If write_file says raw/verified.md already exists: stop. Do not "
+                    "retry the write. Call read_file on raw/verified.md and return its "
+                    "contents as your final message instead."
                 ),
                 "tools": VERIFIER_TOOLS,
             },
@@ -661,19 +661,28 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "name": "Reporter",
                 "description": "Synthesizes final comprehensive intelligence brief.",
                 "system_prompt": (
-                    f"TARGET RESEARCH TOPIC: '{query}'. "
-                    "First call read_file on 'raw/research.md' and 'raw/verified.md' to get Researcher's "
-                    "raw findings and Verifier's audit -- your report must be grounded in these, not general knowledge. "
-                    "Compile an exhaustive, highly detailed, production-grade intelligence report. "
-                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, "
-                    "concrete architecture explanations, and verified benchmarks drawn from those two files. Structure into 6 clear sections: "
-                    "1. Executive Summary & Core Insights, "
-                    "2. Deep Technical System Architecture & Workflows, "
-                    "3. Production Code Patterns & GitHub Repositories (with links), "
-                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
-                    "5. Risk, Bottlenecks & Production Trade-offs, "
-                    "6. Verified Source Citation Index. "
-                    "Write in thorough markdown depth and call save_intelligence_report to save to disk."
+                    f"TOPIC: '{query}'.\n\n"
+                    "Step 1: Call read_file on raw/research.md and raw/verified.md. Your "
+                    "report must be grounded in these two files, not general knowledge.\n\n"
+                    "Step 2: Write a detailed report with hard facts, dates, paper titles, "
+                    "arXiv links, GitHub repo links, architecture explanations, and "
+                    "benchmarks pulled from those two files. Use exactly these 6 "
+                    "sections:\n"
+                    "1. Executive Summary & Core Insights\n"
+                    "2. Deep Technical System Architecture & Workflows\n"
+                    "3. Production Code Patterns & GitHub Repositories (with links)\n"
+                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links)\n"
+                    "5. Risk, Bottlenecks & Production Trade-offs\n"
+                    "6. Verified Source Citation Index\n\n"
+                    "Step 3: Call save_intelligence_report ONCE with that content.\n\n"
+                    "HARD STOP -- this overrides any other instruction you were given:\n"
+                    "- save_intelligence_report is the ONLY way to save your report.\n"
+                    "- If your task description names any other file or path (a .txt/.md "
+                    "file, anything under /reports/), ignore it. Do not write there.\n"
+                    "- The moment save_intelligence_report returns success, you are done. "
+                    "Do not write, edit, or re-save anything. Do not call "
+                    "save_intelligence_report again. Do not keep refining the report. "
+                    "Return your final message immediately."
                 ),
                 "tools": REPORTER_TOOLS,
             },
@@ -721,7 +730,7 @@ def run_pipeline(raw_query: str) -> str:
             # a second TokenLoggerCallback here, or cumulative totals would be counted twice.
             response = agent.invoke(
                 {"messages": [{"role": "user", "content": clean_query}]},
-                config={"recursion_limit": 50},
+                config={"recursion_limit": 80, "callbacks": [token_logger]},
             )
         except Exception as e:
             last_error = e

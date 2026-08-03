@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "streamlit>=1.32.0",
+    "tavily-python>=0.5.0",
     "uvicorn>=0.28.0",
     "youtube-transcript-api>=0.6",
     "yt-dlp>=2026.7.4",
