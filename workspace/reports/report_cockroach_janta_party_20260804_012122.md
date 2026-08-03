@@ -1,0 +1,1 @@
+Executive Summary & Core Insights:\n\n- The Cockroach Janta Party is a political party that has been gaining popularity in recent times.\n- The party

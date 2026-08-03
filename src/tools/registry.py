@@ -1,7 +1,9 @@
 import os
 import sys
 import asyncio
+import re
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import StructuredTool
 
 async def _load_all_tools():
     servers = {
@@ -26,9 +28,23 @@ async def _load_all_tools():
         )
         raise RuntimeError(error_msg) from e
 
+def _make_sync_tool(async_tool):
+    """Wraps an async MCP tool into a synchronous LangChain StructuredTool."""
+    def sync_caller(*args, **kwargs):
+        return asyncio.run(async_tool.ainvoke(*args, **kwargs))
+        
+    return StructuredTool(
+        name=async_tool.name,
+        description=async_tool.description,
+        args_schema=async_tool.args_schema,
+        func=sync_caller,
+        coroutine=async_tool.coroutine
+    )
+
 def get_all_tools():
     """Synchronous wrapper to resolve all MCP tools dynamically at startup."""
-    return asyncio.run(_load_all_tools())
+    raw_mcp_tools = asyncio.run(_load_all_tools())
+    return [_make_sync_tool(t) for t in raw_mcp_tools]
 
 # Load tools at module level
 ALL_MCP_TOOLS = get_all_tools()
@@ -115,41 +131,45 @@ def select_dynamic_tools(query: str, max_tools: int = 4) -> list:
         if tool_name in tool_map:
             tool_map[tool_name]["score"] += points
 
+    def _kw_match(keyword: str, text: str) -> bool:
+        """Regex helper to enforce strict word boundary matching for keywords."""
+        return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+
     # 1. Broad Real-Time Web & News (High priority for general, city, industry, market, or business queries)
     web_keywords = ["pune", "india", "city", "industry", "market", "job", "career", "development", "trend", "news", "company", "startup", "economy", "growth", "state"]
-    if any(k in q for k in web_keywords):
+    if any(_kw_match(k, q) for k in web_keywords):
         _boost("search_tavily", 50)
         _boost("search_web_news", 40)
 
     # 2. Historical & Foundational Background (Wikipedia)
     wiki_keywords = ["history", "background", "overview", "what is", "definition", "pune", "city", "concept", "country"]
-    if any(k in q for k in wiki_keywords):
+    if any(_kw_match(k, q) for k in wiki_keywords):
         _boost("fetch_wiki_data", 45)
 
     # 3. Software Engineering & Code Repositories
     code_keywords = ["code", "repo", "github", "python", "framework", "library", "sdk", "api", "architecture", "implementation", "open source"]
-    if any(k in q for k in code_keywords):
+    if any(_kw_match(k, q) for k in code_keywords):
         _boost("search_github_repos", 45)
-    if any(k in q for k in ["stack", "overflow", "error", "bug", "how to", "issue", "exception"]):
+    if any(_kw_match(k, q) for k in ["stack", "overflow", "error", "bug", "how to", "issue", "exception"]):
         _boost("search_stackexchange", 45)
 
     # 4. Academic Research & arXiv Papers (Strictly triggered for explicit paper/math/study queries)
     academic_keywords = ["arxiv", "paper", "abstract", "peer-reviewed", "journal", "citation", "theorem", "proof", "benchmark dataset"]
-    if any(k in q for k in academic_keywords):
+    if any(_kw_match(k, q) for k in academic_keywords):
         _boost("search_arxiv", 60)
         _boost("search_arxiv_papers", 55)
 
     # Medical / Clinical
-    if any(k in q for k in ["clinical", "trial", "medical", "drug", "patient", "health", "disease", "pharma"]):
+    if any(_kw_match(k, q) for k in ["clinical", "trial", "medical", "drug", "patient", "health", "disease", "pharma"]):
         _boost("search_clinical_trials", 60)
 
     # Community Sentiment
-    if any(k in q for k in ["mastodon", "lemmy", "community", "opinion", "sentiment", "discussion", "social"]):
+    if any(_kw_match(k, q) for k in ["mastodon", "lemmy", "community", "opinion", "sentiment", "discussion", "social"]):
         _boost("search_mastodon", 40)
         _boost("search_lemmy", 40)
 
     # YouTube Transcripts
-    if any(k in q for k in ["youtube", "video", "talk", "lecture", "transcript", "presentation"]):
+    if any(_kw_match(k, q) for k in ["youtube", "video", "talk", "lecture", "transcript", "presentation"]):
         _boost("search_youtube_transcripts", 50)
 
     # Always ensure search_tavily and fetch_wiki_data have solid default scores for broad coverage

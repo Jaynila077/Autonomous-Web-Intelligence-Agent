@@ -301,25 +301,35 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                 "name": "Reporter",
                 "description": "STEP 4 (STRICTLY FINAL STEP - NEVER CALL FIRST): Compiles final brief. CANNOT be called until Researcher finishes.",
                 "system_prompt": (
-                    "Compile an exhaustive, highly detailed, production-grade intelligence report (minimum 1,500 words) using the research findings provided in your task description. "
-                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, concrete architecture explanations, and verified benchmarks. "
-                    "Structure between 9-15 clear sections: "
-                    "1. Executive Summary & Core Insights, "
-                    "2. Deep Technical System Architecture & Workflows, "
-                    "3. Production Code Patterns & GitHub Repositories (with links), "
-                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
-                    "5. Risk, Bottlenecks & Production Trade-offs, "
-                    "6. Verified Source Citation Index. "
-                    "NEVER use dummy placeholder text like 'content goes here'. Write complete, thorough, comprehensive paragraphs for every section. "
-                    "Call save_intelligence_report ONCE passing the complete 6-section report string as report_content. "
-                    "CRITICAL: Once save_intelligence_report finishes, output 'REPORT_SAVED_SUCCESSFULLY' and stop execution immediately."
+                    "Compile a thorough, well-organized intelligence report using ONLY the research "
+                    "findings provided in your task description. Do not introduce facts, links, "
+                    "dates, repository names, or benchmark numbers that were not present in the "
+                    "provided findings. "
+                    "\n\n"
+                    "Structure your report using whichever of the following sections are actually "
+                    "supported by the findings — omit any section entirely if there is no relevant "
+                    "material for it, rather than inventing content to fill it:\n"
+                    "- Executive Summary & Core Insights\n"
+                    "- Background & Context\n"
+                    "- Technical Architecture & Workflows (only if the topic is a technical/software system)\n"
+                    "- Code Repositories & Implementation Details (only if real repo links were found)\n"
+                    "- Academic/Research Basis (only if real paper links were found)\n"
+                    "- Community & Public Reception (if social/discussion data was found)\n"
+                    "- Risks, Open Questions & Trade-offs\n"
+                    "- Verified Source Citation Index (list only sources actually present in the findings)\n"
+                    "\n"
+                    "If the provided findings are sparse or the topic doesn't fit a technical "
+                    "template, write a shorter, honest report rather than padding it with invented "
+                    "detail. Call save_intelligence_report ONCE passing the complete report string "
+                    "as report_content. Once save_intelligence_report finishes, output "
+                    "'REPORT_SAVED_SUCCESSFULLY' and stop execution immediately."
                 ),
                 "tools": REPORTER_TOOLS,
             },
         ],
     )
-    
     return SyncAgentWrapper(agent)
+
 
 def run_pipeline(raw_query: str) -> str:
     clean_query = re.sub(r'\s+', ' ', raw_query).strip()
