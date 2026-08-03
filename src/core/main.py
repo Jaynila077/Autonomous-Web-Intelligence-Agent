@@ -21,7 +21,7 @@ from deepagents.backends import FilesystemBackend
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import trim_messages, AIMessage
+from langchain_core.messages import trim_messages, AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from src.tools.registry import (
@@ -34,17 +34,73 @@ from src.tools.cache_manager import cache_manager
 
 
 # 1. Message Trimmer for context token capping (~4 chars per token)
+#
+# start_on='human' is required, not optional. With strategy="last", trim_messages
+# keeps a contiguous tail of the message list. Without start_on, the cut point can
+# land between an AIMessage(tool_calls=[...]) and its corresponding ToolMessage,
+# leaving the ToolMessage as the first message of the surviving slice -- which
+# OpenAI-compatible APIs reject with:
+#   "messages with role 'tool' must be a response to a preceeding message with
+#    'tool_calls'"
+# start_on='human' forces trimming to keep walking backward until the first
+# surviving message (after the preserved system message) is a HumanMessage,
+# which structurally guarantees no orphaned ToolMessage can lead the kept slice.
+# Verified against the installed langchain-core (1.5.3): there is no automatic
+# orphan-ToolMessage stripping built into trim_messages itself at this version,
+# so start_on is the actual fix, not a belt-and-suspenders addition.
+#
+# max_tokens=20000 (was 2500): 2500 was calibrated for Groq's original small
+# fallback path but is far too tight for gpt-5-nano, whose write_todos/task
+# responses routinely run 4,000-6,000+ tokens EACH. At 2500 tokens, the
+# orchestrator's own record of "Step 1 (Planner) already completed" gets
+# evicted almost every turn, so it has no memory of its own progress and
+# re-delegates to Planner repeatedly instead of advancing -- confirmed live:
+# 'task'->Planner fired again at calls #1, #5, #8, #12 in a single run,
+# never reaching Researcher. 20000 gives enough headroom for several turns
+# of orchestrator state to survive trimming, and is still comfortably within
+# every fallback provider's context window (NVIDIA/Groq/Gemini/OpenRouter all
+# support well over 20K tokens). This is independent of deepagents' own
+# built-in SummarizationMiddleware, which is wired in separately and triggers
+# at 85% of the model's real context window (~231K tokens for gpt-5-nano's
+# 272K profile) -- confirmed via model.profile that it never engaged in the
+# runs that exhibited this loop, since total usage peaked around 80K tokens.
 message_trimmer = trim_messages(
-    max_tokens=2500,
+    max_tokens=20000,
     strategy="last",
     token_counter="approximate",
     include_system=True,
-    start_on=None,
+    start_on="human",
 )
+
+
+def _strip_orphaned_tool_messages(messages: list) -> list:
+    """
+    Safety-net filter, run AFTER message_trimmer.
+
+    start_on='human' should already make orphaned ToolMessages impossible, but
+    this is a cheap, defensive second layer: it drops any ToolMessage whose
+    tool_call_id has no matching tool_calls entry among the AIMessages present
+    in the same (already-trimmed) list. This protects against edge cases (e.g.
+    a future langchain-core version changing start_on semantics, or a message
+    list that reaches the trimmer already malformed) without changing behavior
+    in the normal case.
+    """
+    valid_call_ids = {
+        tc.get("id")
+        for m in messages
+        if isinstance(m, AIMessage)
+        for tc in (m.tool_calls or [])
+        if tc.get("id")
+    }
+    return [
+        m for m in messages
+        if not (isinstance(m, ToolMessage) and m.tool_call_id not in valid_call_ids)
+    ]
 
 
 class TokenLoggerCallback(BaseCallbackHandler):
     """
+<<<<<<< Updated upstream
     Real-time token usage logger callback.
     """
     def on_llm_end(self, response, **kwargs):
@@ -61,6 +117,176 @@ class TokenLoggerCallback(BaseCallbackHandler):
                     print(f"   ├─ Completion Tokens : {compl_tok}")
                     print(f"   ├─ Total Tokens      : {total_tok}")
                     print(f"   └─ Cost              : $0.00 (100% FREE)\n")
+=======
+    Per-LLM-call analysis logger.
+
+    For EVERY LLM call anywhere in the pipeline (orchestrator + all 4 subagents),
+    this prints and persists:
+      - a running call number
+      - which model/provider handled it
+      - a snippet of the input that triggered this specific call
+      - which tools (if any) this call's response requested
+      - tokens used by this call, AND the running cumulative total for the whole run
+
+    Token usage is NOT reliably found on `generation_info` across providers.
+    In practice it shows up in one of three places depending on provider/SDK version:
+      1. response.llm_output["token_usage"] / ["usage"]   (OpenAI-compatible: NVIDIA NIM, Groq, GitHub Models, OpenRouter)
+      2. message.usage_metadata                            (LangChain's standardized field, e.g. Gemini)
+      3. gen.generation_info["token_usage"] / ["usage"]    (older/rare providers)
+    We check all three so this works regardless of which provider is active.
+
+    IMPORTANT: exactly ONE instance of this class must be shared for the whole
+    pipeline run (bound at model-construction time AND passed into agent.invoke's
+    config). Two separate instances would each independently see every call and
+    double the cumulative totals -- see build_awis_agent()/run_pipeline().
+    """
+    def __init__(self):
+        super().__init__()
+        self.provider_label = None
+        self.model_name = None
+        self.call_count = 0
+        self.cumulative_prompt_tokens = 0
+        self.cumulative_completion_tokens = 0
+        self.cumulative_total_tokens = 0
+        self._pending_inputs = {}  # run_id -> input snippet, set in on_chat_model_start
+
+        self.log_dir = os.path.abspath("./workspace/logs")
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(
+            self.log_dir, f"llm_calls_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+        )
+
+    def configure(self, provider_label: str, model_name: str) -> None:
+        """Called once by build_production_llm() once the active provider is known."""
+        self.provider_label = provider_label
+        self.model_name = model_name
+
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        name = serialized.get("name") if isinstance(serialized, dict) else str(serialized)
+        print(f"\n🔧 [LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
+        print(f"   └─ Parameters : {input_str}\n", flush=True)
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        # Capture what triggered this specific call so we can report it in on_llm_end,
+        # matched via run_id (LangChain guarantees the same run_id on start and end).
+        snippet = "N/A"
+        try:
+            last_msg = messages[0][-1]
+            content = last_msg.content
+            text = content if isinstance(content, str) else str(content)
+            text = re.sub(r'\s+', ' ', text).strip()
+            snippet = (text[:160] + "...") if len(text) > 160 else text
+        except Exception:
+            pass
+        self._pending_inputs[str(run_id)] = snippet
+
+    def _resolve_model_name(self, response, kwargs) -> str:
+        llm_output = getattr(response, "llm_output", None) or {}
+        if isinstance(llm_output, dict):
+            for key in ("model_name", "model"):
+                if llm_output.get(key):
+                    return llm_output[key]
+        invocation_params = kwargs.get("invocation_params") or {}
+        if invocation_params.get("model"):
+            return invocation_params["model"]
+        return self.model_name or "unknown"
+
+    def _resolve_usage(self, response):
+        llm_output = getattr(response, "llm_output", None) or {}
+        if isinstance(llm_output, dict):
+            usage = llm_output.get("token_usage") or llm_output.get("usage")
+            if usage:
+                return dict(usage)
+
+        for generations in response.generations:
+            for gen in generations:
+                msg = getattr(gen, "message", None)
+                usage_metadata = getattr(msg, "usage_metadata", None) if msg else None
+                if usage_metadata:
+                    return {
+                        "prompt_tokens": usage_metadata.get("input_tokens"),
+                        "completion_tokens": usage_metadata.get("output_tokens"),
+                        "total_tokens": usage_metadata.get("total_tokens"),
+                    }
+                info = getattr(gen, "generation_info", None) or {}
+                usage = info.get("token_usage") or info.get("usage")
+                if usage:
+                    return dict(usage)
+        return None
+
+    def _resolve_tool_calls(self, response):
+        names = []
+        for generations in response.generations:
+            for gen in generations:
+                msg = getattr(gen, "message", None)
+                tool_calls = getattr(msg, "tool_calls", None) if msg else None
+                if tool_calls:
+                    for tc in tool_calls:
+                        name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                        if name:
+                            names.append(name)
+        return names
+
+    def on_llm_end(self, response, *, run_id=None, **kwargs):
+        self.call_count += 1
+        model_used = self._resolve_model_name(response, kwargs)
+        label = f" [{self.provider_label}]" if self.provider_label else ""
+        input_snippet = self._pending_inputs.pop(str(run_id), "N/A")
+        tools_requested = self._resolve_tool_calls(response)
+        usage = self._resolve_usage(response)
+
+        prompt_tok = compl_tok = total_tok = None
+        if usage:
+            prompt_tok = usage.get("prompt_tokens") or usage.get("prompt_eval_count") or usage.get("input_tokens")
+            compl_tok = usage.get("completion_tokens") or usage.get("eval_count") or usage.get("output_tokens")
+            total_tok = usage.get("total_tokens")
+            if not total_tok and isinstance(prompt_tok, int) and isinstance(compl_tok, int):
+                total_tok = prompt_tok + compl_tok
+            if isinstance(prompt_tok, int):
+                self.cumulative_prompt_tokens += prompt_tok
+            if isinstance(compl_tok, int):
+                self.cumulative_completion_tokens += compl_tok
+            if isinstance(total_tok, int):
+                self.cumulative_total_tokens += total_tok
+
+        tools_str = ", ".join(tools_requested) if tools_requested else "none"
+
+        print(f"\n{'─' * 60}", flush=True)
+        print(f"⚡ LLM Call #{self.call_count}  |  Model: {model_used}{label}", flush=True)
+        print(f"   ├─ Input (triggered by) : \"{input_snippet}\"", flush=True)
+        print(f"   ├─ Tools requested      : {tools_str}", flush=True)
+        print(
+            f"   ├─ Tokens (this call)   : prompt={prompt_tok or 'N/A'}, "
+            f"completion={compl_tok or 'N/A'}, total={total_tok or 'N/A'}",
+            flush=True,
+        )
+        print(
+            f"   └─ Tokens (cumulative)  : prompt={self.cumulative_prompt_tokens}, "
+            f"completion={self.cumulative_completion_tokens}, total={self.cumulative_total_tokens}",
+            flush=True,
+        )
+        print(f"{'─' * 60}\n", flush=True)
+
+        record = {
+            "call_number": self.call_count,
+            "timestamp": datetime.now().isoformat(),
+            "provider": self.provider_label,
+            "model": model_used,
+            "input_snippet": input_snippet,
+            "tools_requested": tools_requested,
+            "prompt_tokens": prompt_tok,
+            "completion_tokens": compl_tok,
+            "total_tokens": total_tok,
+            "cumulative_prompt_tokens": self.cumulative_prompt_tokens,
+            "cumulative_completion_tokens": self.cumulative_completion_tokens,
+            "cumulative_total_tokens": self.cumulative_total_tokens,
+        }
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            print(f"WARNING: could not write LLM call log record: {e}", flush=True)
+>>>>>>> Stashed changes
 
 
 def _validate_groq_model(model_name: str, api_key: str) -> None:
@@ -90,7 +316,7 @@ class ToolParsingChatGroq(ChatGroq):
     Catches Groq HTTP 400 failed_generation exceptions and converts them into valid tool calls!
     """
     def _generate(self, messages, **kwargs):
-        trimmed_messages = message_trimmer.invoke(messages)
+        trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
         res = None
         text = ""
 
@@ -158,15 +384,85 @@ class ToolParsingChatGroq(ChatGroq):
                             msg.content = ""
         return res
 
+    async def _agenerate(self, messages, **kwargs):
+        # Mirrors the sync path above -- LangGraph/deepagents can invoke async
+        # under the hood, and without this override the trimmer would silently
+        # not apply whenever that path is taken.
+        trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
+        return await super()._agenerate(trimmed_messages, **kwargs)
 
-def build_production_llm():
-    token_logger = TokenLoggerCallback()
+
+class TrimmedChatOpenAI(ChatOpenAI):
+    """
+    Plain ChatOpenAI is used for THREE different providers here (NVIDIA NIM,
+    GitHub Models, OpenRouter), and none of them were getting message_trimmer
+    applied -- only ToolParsingChatGroq (Groq-only) called it. That means every
+    other provider sends the FULL, ever-growing message history on every call
+    with no cap at all.
+
+    This was directly visible in a real run: prompt tokens climbed 5451 -> 5544
+    -> 5634 -> ... -> 6145 across a single run that never even reached the
+    Researcher stage -- each wasted round-trip (hallucinated subagent names,
+    repeated write_todos calls) made every subsequent call more expensive too,
+    compounding the slowdown instead of staying flat.
+
+    This subclass applies the exact same trimming Groq already had, so context
+    size is capped regardless of which provider in the fallback chain is active.
+    """
+    def _generate(self, messages, **kwargs):
+        trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
+        return super()._generate(trimmed_messages, **kwargs)
+
+    async def _agenerate(self, messages, **kwargs):
+        trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
+        return await super()._agenerate(trimmed_messages, **kwargs)
+
+
+def _announce_provider(provider_label: str, model_name: str) -> None:
+    print(f"\n🤖 Active LLM Provider : {provider_label}  |  Model : {model_name}\n", flush=True)
+
+
+def build_production_llm(token_logger: "TokenLoggerCallback"):
+    # 0. New: OpenAI direct (gpt-5-nano) -- placed FIRST so it's actually used now that
+    #    OPENAI_API_KEY is already set in .env. NOTE: gpt-5-nano is a reasoning model and
+    #    its API rejects any non-default `temperature` value (400 error), so it is
+    #    deliberately omitted here unlike every other branch below.
+    #
+    #    reasoning_effort: gpt-5-nano supports minimal/low/medium/high (default medium if
+    #    omitted). Confirmed live that single write_todos/task calls were routinely burning
+    #    4,000-9,000+ completion tokens on purely mechanical steps (updating a todo list,
+    #    writing a one-paragraph task description) -- that's reasoning tokens spent on work
+    #    that needs none, and it directly feeds the message_trimmer pressure documented above
+    #    (bigger completions -> bigger history -> orchestrator's own step-tracking gets
+    #    evicted sooner). Passed as a top-level kwarg, not via model_kwargs -- confirmed live
+    #    that the installed langchain-openai version recognizes reasoning_effort as a proper
+    #    field (model_kwargs triggered "should be specified explicitly" warnings on every call).
+    #    Deliberately defaulting to "low", not "minimal": OpenAI's docs confirm minimal
+    #    disables parallel tool calling, and Researcher relies on firing several search tools
+    #    in parallel per turn -- "minimal" would silently serialize (and likely break) that.
+    #    Override with OPENAI_REASONING_EFFORT=minimal|low|medium|high in .env to tune further.
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+        reasoning_effort = os.getenv("OPENAI_REASONING_EFFORT", "low")
+        _announce_provider("OpenAI", model_name)
+        token_logger.configure(provider_label="OpenAI", model_name=model_name)
+        return TrimmedChatOpenAI(
+            model=model_name,
+            openai_api_key=openai_key,
+            reasoning_effort=reasoning_effort,
+            max_retries=5,
+            callbacks=[token_logger]
+        )
 
     # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
-        return ChatOpenAI(
-            model=os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
+        model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+        _announce_provider("NVIDIA NIM", model_name)
+        token_logger.configure(provider_label="NVIDIA NIM", model_name=model_name)
+        return TrimmedChatOpenAI(
+            model=model_name,
             openai_api_key=nvidia_key,
             openai_api_base="https://integrate.api.nvidia.com/v1",
             temperature=0.0,
@@ -179,6 +475,8 @@ def build_production_llm():
     if groq_key:
         model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         _validate_groq_model(model_name, groq_key)
+        _announce_provider("Groq", model_name)
+        token_logger.configure(provider_label="Groq", model_name=model_name)
         return ToolParsingChatGroq(
             model_name=model_name,
             groq_api_key=groq_key,
@@ -189,8 +487,11 @@ def build_production_llm():
 
     gh_token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
     if gh_token:
-        return ChatOpenAI(
-            model=os.getenv("GITHUB_MODEL", "gpt-4o-mini"),
+        model_name = os.getenv("GITHUB_MODEL", "gpt-4o-mini")
+        _announce_provider("GitHub Models", model_name)
+        token_logger.configure(provider_label="GitHub Models", model_name=model_name)
+        return TrimmedChatOpenAI(
+            model=model_name,
             openai_api_key=gh_token,
             openai_api_base="https://models.inference.ai.azure.com",
             temperature=0.0,
@@ -202,8 +503,22 @@ def build_production_llm():
     if gemini_key:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(
-                model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+
+            class TrimmedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
+                """Same trimming treatment as TrimmedChatOpenAI, for the Gemini fallback path."""
+                def _generate(self, messages, **kwargs):
+                    trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
+                    return super()._generate(trimmed_messages, **kwargs)
+
+                async def _agenerate(self, messages, **kwargs):
+                    trimmed_messages = _strip_orphaned_tool_messages(message_trimmer.invoke(messages))
+                    return await super()._agenerate(trimmed_messages, **kwargs)
+
+            model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            _announce_provider("Google Gemini", model_name)
+            token_logger.configure(provider_label="Google Gemini", model_name=model_name)
+            return TrimmedChatGoogleGenerativeAI(
+                model=model_name,
                 google_api_key=gemini_key,
                 temperature=0.0,
                 max_retries=5,
@@ -214,8 +529,11 @@ def build_production_llm():
 
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     if openrouter_key:
-        return ChatOpenAI(
-            model=os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct"),
+        model_name = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct")
+        _announce_provider("OpenRouter", model_name)
+        token_logger.configure(provider_label="OpenRouter", model_name=model_name)
+        return TrimmedChatOpenAI(
+            model=model_name,
             openai_api_key=openrouter_key,
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0,
@@ -226,13 +544,18 @@ def build_production_llm():
     raise ValueError("No valid API key found in environment variables.")
 
 
-def build_awis_agent(query: str = "Agentic AI Architectures"):
+def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "TokenLoggerCallback" = None):
     vfs_path = os.path.abspath("./workspace")
     reports_path = os.path.abspath("./workspace/reports")
+    raw_path = os.path.abspath("./workspace/raw")
     os.makedirs(vfs_path, exist_ok=True)
     os.makedirs(reports_path, exist_ok=True)
+    os.makedirs(raw_path, exist_ok=True)
 
-    llm = build_production_llm()
+    if token_logger is None:
+        token_logger = TokenLoggerCallback()
+
+    llm = build_production_llm(token_logger)
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
     dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
 
@@ -241,20 +564,59 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
         backend=backend,
         tools=[],
         system_prompt=(
+<<<<<<< Updated upstream
             "Lead Orchestrator for AWIS. Delegate research tasks sequentially once: "
             "1. Planner -- create research plan. "
             "2. Researcher -- gather raw data across sources. "
             "3. Verifier -- audit findings. "
             "4. Reporter -- compile final report and call save_intelligence_report. "
             "CRITICAL: Once Reporter saves the report, output the final report text and STOP delegating."
+=======
+            f"Lead Orchestrator for AWIS. TARGET RESEARCH TOPIC: '{query}'. "
+            "This is the ONLY topic you are researching -- never ask the user what to "
+            "research, and if any subagent's output seems to have lost track of it, "
+            "restate this exact topic to them. "
+            "Execute all 4 subagent steps sequentially without skipping any step. Each "
+            "subagent hands off its work via the shared VFS, not through you -- when you "
+            "delegate, tell each subagent exactly which file to read and which file to write. "
+            "RULE 1 -- never redo a finished step: do not rely on your own memory of which "
+            "steps are already done -- that memory is unreliable over a long run. Before EVERY "
+            "single task() call, you MUST first call ls('/raw/') and look at the exact list of "
+            "filenames it returns. If the step's output filename is already in that list, the "
+            "step is DONE -- do not call task() for it again, move straight to the next step. "
+            "Call ls('/raw/') again before every delegation, even the very next one -- never "
+            "trust a check you did earlier in the run. "
+            "RULE 2 -- delegate, never do the work yourself: you have filesystem tools "
+            "available, but you must NEVER call write_file on raw/plan.md, raw/research.md, or "
+            "raw/verified.md yourself. Those three files may only be written by the Planner, "
+            "Researcher, and Verifier subagents respectively, via task(). Your own filesystem "
+            "tool use is READ-ONLY (ls/read_file), only to check which steps are done. "
+            "RULE 3 -- stop immediately once done: the pipeline ends the moment the Reporter "
+            "subagent returns from its task() call (it will have already called "
+            "save_intelligence_report itself). At that point, take NO further actions -- do not "
+            "call ls, do not read anything from /reports, do not write anything else. Simply "
+            "return the Reporter's report text as your own final message and stop. "
+            "Step 1: Delegate to 'Planner' -- it must write its plan to raw/plan.md. Skip if raw/plan.md already exists. "
+            "Step 2: Delegate to 'Researcher' -- tell it to read raw/plan.md first, then write its findings to raw/research.md. Skip if raw/research.md already exists. "
+            "Step 3: Delegate to 'Verifier' -- tell it to read raw/research.md first (not go hunting), then write its audit to raw/verified.md. Skip if raw/verified.md already exists. "
+            "Step 4: Delegate to 'Reporter' -- tell it to read both raw/research.md and raw/verified.md before compiling the report and calling save_intelligence_report. Then STOP (see RULE 3). "
+            "CRITICAL: You MUST execute Step 1, Step 2, and Step 3 in sequence before calling Reporter! Do NOT skip Researcher!"
+>>>>>>> Stashed changes
         ),
         subagents=[
             {
                 "name": "Planner",
                 "description": "Creates structured multi-domain research plan.",
                 "system_prompt": (
+                    f"TARGET RESEARCH TOPIC: '{query}'. "
                     "Create a concise 4-step research plan covering: "
-                    "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise."
+                    "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise. "
+                    "Do not spend tool calls checking whether 'raw/plan.md' already exists first -- "
+                    "the orchestrator only delegates this step once, so just do the work directly. "
+                    "Before you finish, call write_file to save this plan to 'raw/plan.md', then "
+                    "return the plan as your final message. If write_file tells you 'raw/plan.md' "
+                    "already exists, that means this step is already done -- do not retry the write, "
+                    "just read_file it and return its contents as your final message."
                 ),
                 "tools": [],
             },
@@ -262,8 +624,19 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                 "name": "Researcher",
                 "description": "Gathers raw data across specialized tools.",
                 "system_prompt": (
+                    f"TARGET RESEARCH TOPIC: '{query}'. "
+                    "First call read_file on 'raw/plan.md' to see the research plan. "
                     "Execute assigned research tools to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
-                    "Return a clean, factual summary containing all hard numbers, dates, paper links, and repo URLs."
+                    "If one search tool errors (e.g. a missing API key), ignore it and rely on the "
+                    "results from your other tools -- do NOT go browsing the VFS looking for substitute "
+                    "data; your only VFS interactions this whole step are reading 'raw/plan.md' and "
+                    "writing 'raw/research.md'. "
+                    "Before you finish, call write_file to save your complete findings -- including every "
+                    "hard number, date, paper link, and repo URL you found -- to 'raw/research.md'. "
+                    "Then return a clean, factual summary as your final message. If write_file tells you "
+                    "'raw/research.md' already exists, that means this step is already done -- do not "
+                    "retry the write or edit the file, just read_file it and return its contents as your "
+                    "final message."
                 ),
                 "tools": dynamic_research_tools,
             },
@@ -271,8 +644,16 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                 "name": "Verifier",
                 "description": "Audits research findings for accuracy.",
                 "system_prompt": (
-                    "Audit research findings gathered by Researcher for credibility, source quality, and technical accuracy. "
-                    "Use assigned search tools to cross-verify claims and return verified facts concisely."
+                    f"TARGET RESEARCH TOPIC: '{query}'. "
+                    "First call read_file on 'raw/research.md' to get Researcher's actual findings -- "
+                    "do NOT go looking for them via ls/grep on unrelated files. "
+                    "Audit those findings for credibility, source quality, and technical accuracy. "
+                    "Use assigned search tools only to cross-verify specific claims, not to redo the research. "
+                    "Before you finish, call write_file to save your audit to 'raw/verified.md', then "
+                    "return verified facts concisely as your final message. If write_file tells you "
+                    "'raw/verified.md' already exists, that means this step is already done -- do not "
+                    "retry the write or edit the file, just read_file it and return its contents as your "
+                    "final message."
                 ),
                 "tools": VERIFIER_TOOLS,
             },
@@ -280,9 +661,12 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                 "name": "Reporter",
                 "description": "Synthesizes final comprehensive intelligence brief.",
                 "system_prompt": (
+                    f"TARGET RESEARCH TOPIC: '{query}'. "
+                    "First call read_file on 'raw/research.md' and 'raw/verified.md' to get Researcher's "
+                    "raw findings and Verifier's audit -- your report must be grounded in these, not general knowledge. "
                     "Compile an exhaustive, highly detailed, production-grade intelligence report. "
                     "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, "
-                    "concrete architecture explanations, and verified benchmarks. Structure into 6 clear sections: "
+                    "concrete architecture explanations, and verified benchmarks drawn from those two files. Structure into 6 clear sections: "
                     "1. Executive Summary & Core Insights, "
                     "2. Deep Technical System Architecture & Workflows, "
                     "3. Production Code Patterns & GitHub Repositories (with links), "
@@ -311,7 +695,8 @@ def run_pipeline(raw_query: str) -> str:
     print(f"Cache Volume : {stats['total_entries']} entries ({stats['size_bytes'] / 1024:.1f} KB)")
     print()
 
-    agent = build_awis_agent(clean_query)
+    token_logger = TokenLoggerCallback()
+    agent = build_awis_agent(clean_query, token_logger=token_logger)
 
     def _looks_like_leaked_tool_call(text: str) -> bool:
         stripped = text.strip()
@@ -332,6 +717,8 @@ def run_pipeline(raw_query: str) -> str:
 
     for attempt in range(1, max_attempts + 1):
         try:
+            # Reuse the SAME token_logger instance created above -- do not construct
+            # a second TokenLoggerCallback here, or cumulative totals would be counted twice.
             response = agent.invoke(
                 {"messages": [{"role": "user", "content": clean_query}]},
                 config={"recursion_limit": 50},
@@ -371,7 +758,11 @@ def run_pipeline(raw_query: str) -> str:
     print("=" * 60 + "\n")
     print(final_output)
     print("\n" + "=" * 60)
-    print(f"Latest Report : {latest_file}\n")
+    print(f"Latest Report : {latest_file}")
+    print(f"Total LLM Calls    : {token_logger.call_count}")
+    print(f"Total Tokens Used  : {token_logger.cumulative_total_tokens} "
+          f"(prompt={token_logger.cumulative_prompt_tokens}, completion={token_logger.cumulative_completion_tokens})")
+    print(f"Per-call Log (JSONL): {token_logger.log_path}\n")
 
     return final_output
 
