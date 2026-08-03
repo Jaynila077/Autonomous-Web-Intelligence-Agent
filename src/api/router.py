@@ -1,3 +1,4 @@
+# src/api/router.py
 import uuid
 import os
 import asyncio
@@ -13,7 +14,7 @@ from src.api.schemas import (
     JobStatusResponse,
     JobStatus,
 )
-from src.api.database import get_session, Job
+from src.api.database import engine, get_session, Job
 from src.api.worker import execute_agent_pipeline
 
 router = APIRouter(prefix="/api/v1/queries", tags=["Queries"])
@@ -47,7 +48,6 @@ async def submit_query(
 ):
     job_id = f"job_{uuid.uuid4().hex[:8]}"
 
-    # Persist initial QUEUED record into Database
     new_job = Job(
         job_id=job_id,
         user_id=current_user_id,
@@ -56,7 +56,6 @@ async def submit_query(
     db.add(new_job)
     db.commit()
 
-    # Enqueue pipeline execution in background
     background_tasks.add_task(
         execute_agent_pipeline,
         job_id=job_id,
@@ -80,9 +79,10 @@ async def stream_job_status(
 ):
     """
     Streams job status over SSE while enforcing single-tenant access boundaries.
+    Uses `engine` directly to avoid session leaks.
     """
-    # Verify job exists and belongs to current user
-    with Session(next(get_session()).bind) as db:
+    # 1. Initial permission & existence check using engine directly
+    with Session(engine) as db:
         job = db.get(Job, job_id)
         if not job:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
@@ -95,8 +95,8 @@ async def stream_job_status(
     async def status_event_generator() -> AsyncGenerator[dict, None]:
         last_status = None
         while True:
-            # Poll database for current job status
-            with Session(next(get_session()).bind) as db:
+            # 2. Polling loop using engine directly (prevents connection pool exhaustion)
+            with Session(engine) as db:
                 current_job = db.get(Job, job_id)
                 if not current_job:
                     break
@@ -137,7 +137,6 @@ async def get_report_file(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    # Ownership check
     if job.user_id != current_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
