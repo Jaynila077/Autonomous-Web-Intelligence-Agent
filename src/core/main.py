@@ -28,6 +28,7 @@ from src.tools.registry import (
     RESEARCHER_TOOLS,
     VERIFIER_TOOLS,
     REPORTER_TOOLS,
+    AWIS_TOOL_REGISTRY,
     select_dynamic_tools,
 )
 from src.tools.cache_manager import cache_manager
@@ -138,15 +139,83 @@ class TokenLoggerCallback(BaseCallbackHandler):
             self.log_dir, f"llm_calls_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
         )
 
+        # --- Code-layer raw-capture (replaces Researcher manually transcribing
+        # tool output into raw/research_raw.md -- see on_tool_start/on_tool_end/
+        # on_tool_error below). Scoped to AWIS_TOOL_REGISTRY (domain tools only)
+        # so filesystem tools (read_file/write_file/ls/grep), write_todos, and
+        # task() never get captured -- this both avoids noise and rules out any
+        # risk of the capture-writer recursively reacting to its own or another
+        # subagent's filesystem writes.
+        self._captured_tool_names = {t.name for t in AWIS_TOOL_REGISTRY}
+        self._pending_tool_calls = {}  # run_id -> {"name", "input", "timestamp"}
+        self.raw_capture_path = os.path.abspath("./workspace/raw/research_raw.md")
+        # Cap for the audit-trail capture. Deliberately much larger than
+        # truncate_tool_output's ~1200-2000 char cap: that cap protects what the
+        # LLM sees inline mid-conversation; this one is Verifier's ground-truth
+        # record and needs to actually hold enough to audit against. 20000 chars
+        # (~5000 tokens) comfortably covers the largest raw payloads any single
+        # tool call in this codebase can return (extractor char_limits top out at
+        # 12000) with headroom, while still bounding worst-case file growth
+        # across a run with many tool calls.
+        self.RAW_CAPTURE_CHAR_CAP = 20000
+
     def configure(self, provider_label: str, model_name: str) -> None:
         """Called once by build_production_llm() once the active provider is known."""
         self.provider_label = provider_label
         self.model_name = model_name
 
-    def on_tool_start(self, serialized, input_str, **kwargs):
+    def on_tool_start(self, serialized, input_str, *, run_id=None, **kwargs):
         name = serialized.get("name") if isinstance(serialized, dict) else str(serialized)
         print(f"\n🔧 [LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
         print(f"   └─ Parameters : {input_str}\n", flush=True)
+
+        # Only track domain tools (AWIS_TOOL_REGISTRY) for raw capture. Filesystem
+        # tools, write_todos, and task() are deliberately excluded.
+        if run_id is not None and name in self._captured_tool_names:
+            self._pending_tool_calls[str(run_id)] = {
+                "name": name,
+                "input": input_str,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+    def _write_tool_capture(self, run_id, result_text: str) -> None:
+        pending = self._pending_tool_calls.pop(str(run_id), None)
+        if pending is None:
+            # Not a domain tool call (or already popped) -- nothing to capture.
+            return
+
+        if len(result_text) > self.RAW_CAPTURE_CHAR_CAP:
+            result_text = (
+                result_text[: self.RAW_CAPTURE_CHAR_CAP]
+                + f"\n... [capture truncated at {self.RAW_CAPTURE_CHAR_CAP} chars, "
+                f"original {len(result_text)} chars]"
+            )
+
+        # Same block format Researcher used to hand-write, so Verifier's prompt
+        # (and anyone reading raw/research_raw.md) needs no format changes.
+        block = (
+            f"Tool: {pending['name']}\n"
+            f"Args: {pending['input']}\n"
+            f"Timestamp: {pending['timestamp']}\n"
+            f"Result: {result_text}\n\n"
+        )
+        try:
+            os.makedirs(os.path.dirname(self.raw_capture_path), exist_ok=True)
+            with open(self.raw_capture_path, "a", encoding="utf-8") as f:
+                f.write(block)
+        except Exception as e:
+            print(f"WARNING: could not write tool capture record: {e}", flush=True)
+
+    def on_tool_end(self, output, *, run_id=None, **kwargs):
+        # `output` is whatever the tool function returned -- the complete,
+        # unmodified value, never touched by an LLM. This is what makes the
+        # capture reliable regardless of model strength.
+        self._write_tool_capture(run_id, str(output))
+
+    def on_tool_error(self, error, *, run_id=None, **kwargs):
+        # Capture failures too -- a failed tool call is part of what Researcher
+        # actually saw and reacted to, and useful for Verifier's fidelity audit.
+        self._write_tool_capture(run_id, f"ERROR: {error}")
 
     def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
         # Capture what triggered this specific call so we can report it in on_llm_end,
@@ -602,30 +671,19 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "your task description names only one -- the full plan always "
                     "applies.\n\n"
                     "Step 3: Run your research tools to gather facts, paper abstracts, "
-                    "paper URLs, arXiv IDs, and code repo links.\n\n"
+                    "paper URLs, arXiv IDs, and code repo links. Every tool call you make "
+                    "is automatically captured to raw/research_raw.md for you -- you do "
+                    "not need to transcribe or copy tool output anywhere yourself.\n\n"
                     "Step 4: If a tool errors, ignore that tool and keep using the others. "
                     "Do not browse the VFS for substitute data. Your only VFS actions this "
-                    "step: read raw/plan.md, write raw/research_raw.md, write "
-                    "raw/research.md.\n\n"
-                    "Step 5: Write raw/research_raw.md FIRST. For EVERY tool call you "
-                    "made, write this exact block, one per call:\n\n"
-                    "Tool: <tool name>\n"
-                    "Args: <args you called it with>\n"
-                    "Result: <paste the full raw output here, character for character>\n\n"
-                    "Rules for the Result line:\n"
-                    "- Paste the tool's actual output. Do not summarize it.\n"
-                    "- Never write \"[N lines truncated]\" or any other placeholder. Paste "
-                    "the real text, however long it is.\n"
-                    "- If a call errored or returned nothing, paste the actual error text, "
-                    "or write \"Result: (empty)\" -- still write the block, don't skip "
-                    "it.\n\n"
-                    "Step 6: Write raw/research.md SECOND. This is your synthesis: "
-                    "readable prose covering every hard number, date, paper link, and "
-                    "repo URL you found.\n\n"
-                    "Step 7: Return a short, factual summary as your final message.\n\n"
-                    "If write_file says raw/research_raw.md or raw/research.md already "
-                    "exists: stop. Do not retry, do not edit. Call read_file on both and "
-                    "return raw/research.md's contents as your final message instead."
+                    "step: read raw/plan.md, write raw/research.md.\n\n"
+                    "Step 5: Write raw/research.md. This is your synthesis: readable prose "
+                    "covering every hard number, date, paper link, and repo URL you "
+                    "found.\n\n"
+                    "Step 6: Return a short, factual summary as your final message.\n\n"
+                    "If write_file says raw/research.md already exists: stop. Do not "
+                    "retry, do not edit. Call read_file on it and return its contents as "
+                    "your final message instead."
                 ),
                 "tools": dynamic_research_tools,
             },
@@ -634,8 +692,10 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Audits Researcher's synthesis for fidelity to the raw retrieved data (no search tools).",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
-                    "Step 1: Call read_file on raw/research_raw.md (what was actually "
-                    "retrieved).\n"
+                    "Step 1: Call read_file on raw/research_raw.md -- a complete, "
+                    "unmodified record of every tool call Researcher made, captured "
+                    "automatically (not written by Researcher, so nothing in it has been "
+                    "summarized or paraphrased).\n"
                     "Step 2: Call read_file on raw/research.md (Researcher's synthesis).\n"
                     "Do not go looking for either file any other way (no ls/grep).\n\n"
                     "You have no search tools. Do not verify facts against the outside "
@@ -691,11 +751,41 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
     return agent
 
 
+def _clear_raw_dir() -> None:
+    """
+    Clears workspace/raw/ (plan.md, research.md, research_raw.md, verified.md)
+    at the end of a run so the next run starts clean, without relying on the
+    reactive "already exists, stop" guards in each subagent's prompt. Only
+    files directly inside raw/ are removed -- workspace/reports/ (where
+    save_intelligence_report writes) is untouched.
+    """
+    raw_path = os.path.abspath("./workspace/raw")
+    if not os.path.isdir(raw_path):
+        return
+    for entry in os.listdir(raw_path):
+        entry_path = os.path.join(raw_path, entry)
+        try:
+            if os.path.isfile(entry_path):
+                os.remove(entry_path)
+        except Exception as e:
+            print(f"WARNING: could not clear '{entry_path}': {e}", flush=True)
+
+
 def run_pipeline(raw_query: str) -> str:
     clean_query = re.sub(r'\s+', ' ', raw_query).strip()
     if not clean_query:
         return "Error: Empty query provided."
+    try:
+        return _run_pipeline_core(clean_query)
+    finally:
+        # Clears workspace/raw/ so the next run starts clean. Runs on both
+        # success and failure -- a stale raw/ left behind by a failed run
+        # causes the exact same "already exists" collision with the next run
+        # as one left behind by a successful run.
+        _clear_raw_dir()
 
+
+def _run_pipeline_core(clean_query: str) -> str:
     stats = cache_manager.get_stats()
     print("=" * 60)
     print("       AWIS Production Web Intelligence Pipeline            ")
