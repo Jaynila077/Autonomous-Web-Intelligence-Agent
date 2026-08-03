@@ -1,9 +1,12 @@
+# src/api/main.py
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.router import router as queries_router
+from src.api.auth import router as auth_router
 from src.api.database import init_db
+
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -26,6 +29,8 @@ def create_app() -> FastAPI:
     def on_startup():
         init_db()
 
+    # Mount routers
+    app.include_router(auth_router)
     app.include_router(queries_router)
 
     @app.get("/health", tags=["Health"])
@@ -33,6 +38,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "AWIS DeepAgent Backend"}
 
     return app
+
 
 app = create_app()
 
