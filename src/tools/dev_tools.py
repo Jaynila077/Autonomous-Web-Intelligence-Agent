@@ -1,15 +1,14 @@
 import os
-import re
 import html
+import re
 import requests
-from typing import List, Dict, Any
 from langchain_core.tools import tool
+from typing import List, Dict, Any
 
 DEFAULT_TIMEOUT = 10
 
-
 def _strip_html_tags(raw: str) -> str:
-    text = re.sub(r"<script.*?</script>", "", raw or "", flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<script.*?</script>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<style.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text)
@@ -17,47 +16,40 @@ def _strip_html_tags(raw: str) -> str:
 
 
 @tool
-def search_github_repos(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def search_github_repos(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
-    Searches GitHub for public repositories matching a query, sorted by stars (cached 24h).
-    Use this tool when researching what tools/libraries/projects exist for a topic,
-    or when you need a repo's full_name (owner/repo) to pass into extract_github_readme
-    for the project's full README content.
-    No API key required; set GITHUB_TOKEN in the environment to raise the rate limit.
+    Searches GitHub repositories matching a query, sorted by star count.
+    Use this tool FIRST when a request needs open-source projects, tools,
+    or code examples related to a topic.
 
     Args:
-        query: The search topic or technical keywords.
-        max_results: Maximum number of repositories to retrieve (default is 10).
+        query: The search query (e.g. 'agentic ai framework').
+        limit: Maximum number of repositories to retrieve (default is 5).
 
     Returns:
         List of dictionaries with repo metadata, including 'full_name' (owner/repo)
         for use with extract_github_readme.
     """
-    params = {"q": query, "per_page": max_results, "sort": "stars", "order": "desc"}
+    params = {"q": query, "per_page": limit, "sort": "stars", "order": "desc"}
     headers = {"Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        resp = requests.get(
-            "https://api.github.com/search/repositories",
-            params=params, headers=headers, timeout=DEFAULT_TIMEOUT,
-        )
+        resp = requests.get("https://api.github.com/search/repositories", params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-
+        
         return [
             {
                 "full_name": item.get("full_name", ""),
-                "author": item.get("owner", {}).get("login"),
-                "created": item.get("created_at"),
-                "stars": item.get("stargazers_count"),
-                "forks": item.get("forks_count"),
-                "language": item.get("language"),
-                "text": item.get("description"),
                 "url": item.get("html_url", ""),
-                "source_platform": "GitHub",
+                "owner": item.get("owner", {}).get("login"),
+                "stars": item.get("stargazers_count"),
+                "description": item.get("description"),
+                "language": item.get("language"),
+                "source_platform": "GitHub"
             }
             for item in data.get("items", [])
         ]
