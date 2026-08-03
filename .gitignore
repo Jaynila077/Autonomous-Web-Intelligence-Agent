@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Tool outputs / Stale test logs
+test_all_tools_output.txt
+src/tools/test_all_tools_output.txt

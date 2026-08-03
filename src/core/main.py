@@ -5,6 +5,7 @@ import json
 import requests
 from datetime import datetime
 import time
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -17,7 +18,6 @@ fs_mw.FILESYSTEM_SYSTEM_PROMPT = "Workspace VFS Active: Use write_file to save n
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
-
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_core.callbacks import BaseCallbackHandler
@@ -32,16 +32,14 @@ from src.tools.registry import (
 )
 from src.tools.cache_manager import cache_manager
 
-
 # 1. Message Trimmer for context token capping (~4 chars per token)
 message_trimmer = trim_messages(
-    max_tokens=2500,
+    max_tokens=60000,
     strategy="last",
     token_counter="approximate",
     include_system=True,
     start_on=None,
 )
-
 
 class TokenLoggerCallback(BaseCallbackHandler):
     """
@@ -51,7 +49,7 @@ class TokenLoggerCallback(BaseCallbackHandler):
         name = serialized.get("name") if isinstance(serialized, dict) else str(serialized)
         try:
             print(f"\n[LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
-            print(f"   └─ Parameters : {input_str}\n", flush=True)
+            print(f"     Parameters : {input_str}\n", flush=True)
         except Exception:
             pass
 
@@ -66,13 +64,12 @@ class TokenLoggerCallback(BaseCallbackHandler):
                     total_tok = token_usage.get("total_tokens") or "N/A"
                     try:
                         print(f"\n[LLM Token Usage Report]", flush=True)
-                        print(f"   ├─ Prompt Tokens     : {prompt_tok}", flush=True)
-                        print(f"   ├─ Completion Tokens : {compl_tok}", flush=True)
-                        print(f"   ├─ Total Tokens      : {total_tok}", flush=True)
-                        print(f"   └─ Cost              : $0.00 (100% FREE)\n", flush=True)
+                        print(f"     Prompt Tokens     : {prompt_tok}", flush=True)
+                        print(f"     Completion Tokens : {compl_tok}", flush=True)
+                        print(f"     Total Tokens      : {total_tok}", flush=True)
+                        print(f"     Cost              : $0.00 (100% FREE)\n", flush=True)
                     except Exception:
                         pass
-
 
 def _validate_groq_model(model_name: str, api_key: str) -> None:
     try:
@@ -85,7 +82,6 @@ def _validate_groq_model(model_name: str, api_key: str) -> None:
         live_ids = {m["id"] for m in resp.json().get("data", [])}
     except Exception:
         return
-
     if model_name not in live_ids:
         print(
             f"\nWARNING: '{model_name}' is not in Groq's current live model list.\n"
@@ -94,17 +90,15 @@ def _validate_groq_model(model_name: str, api_key: str) -> None:
             f"Set GROQ_MODEL in .env to one of the above.\n"
         )
 
-
 class ToolParsingChatGroq(ChatGroq):
     """
     Parses raw function XML text (<function=name(...)}></function>) from Llama models on Groq.
-    Catches Groq HTTP 400 failed_generation exceptions and converts them into valid tool calls!
+    Catches Groq HTTP 400 failed_generation exceptions and converts them into valid tool calls.
     """
     def _generate(self, messages, **kwargs):
         trimmed_messages = message_trimmer.invoke(messages)
         res = None
         text = ""
-
         try:
             res = super()._generate(trimmed_messages, **kwargs)
         except Exception as e:
@@ -159,7 +153,6 @@ class ToolParsingChatGroq(ChatGroq):
                                     args = json.loads(raw_json)
                                 except Exception:
                                     args = {}
-
                             msg.tool_calls = [{
                                 "name": tool_name,
                                 "args": args,
@@ -168,7 +161,6 @@ class ToolParsingChatGroq(ChatGroq):
                             }]
                             msg.content = ""
         return res
-
 
 def build_production_llm():
     token_logger = TokenLoggerCallback()
@@ -241,6 +233,21 @@ def build_production_llm():
     raise ValueError("No valid API key found in environment variables.")
 
 
+class SyncAgentWrapper:
+    """
+    Bridges async MCP tools for synchronous callers by wrapping the compiled agent.
+    Intercepts .invoke() and safely routes it to .ainvoke() within an event loop.
+    """
+    def __init__(self, agent):
+        self.agent = agent
+
+    def invoke(self, *args, **kwargs):
+        return asyncio.run(self.agent.ainvoke(*args, **kwargs))
+
+    def __getattr__(self, name):
+        return getattr(self.agent, name)
+
+
 def build_awis_agent(query: str = "Agentic AI Architectures"):
     vfs_path = os.path.abspath("./workspace")
     reports_path = os.path.abspath("./workspace/reports")
@@ -249,6 +256,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
 
     llm = build_production_llm()
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=False)
+
     dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
 
     agent = create_deep_agent(
@@ -310,8 +318,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
             },
         ],
     )
-    return agent
-
+    
+    return SyncAgentWrapper(agent)
 
 def run_pipeline(raw_query: str) -> str:
     clean_query = re.sub(r'\s+', ' ', raw_query).strip()
@@ -319,6 +327,7 @@ def run_pipeline(raw_query: str) -> str:
         return "Error: Empty query provided."
 
     stats = cache_manager.get_stats()
+
     print("=" * 60)
     print("       AWIS Production Web Intelligence Pipeline            ")
     print("=" * 60)
@@ -346,6 +355,7 @@ def run_pipeline(raw_query: str) -> str:
     last_error = None
 
     token_logger = TokenLoggerCallback()
+
     for attempt in range(1, max_attempts + 1):
         try:
             response = agent.invoke(
@@ -388,9 +398,7 @@ def run_pipeline(raw_query: str) -> str:
     print(final_output)
     print("\n" + "=" * 60)
     print(f"Latest Report : {latest_file}\n")
-
     return final_output
-
 
 if __name__ == "__main__":
     query_arg = sys.argv[1] if len(sys.argv) > 1 else "Latest advances in Agentic AI architectures"

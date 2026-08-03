@@ -1,0 +1,2 @@
+# Smoke Test
+Passed.

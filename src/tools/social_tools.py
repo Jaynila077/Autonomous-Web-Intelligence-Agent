@@ -2,7 +2,6 @@ import os
 import html
 import re
 import requests
-from langchain_core.tools import tool
 from typing import List, Dict, Any
 from src.tools.cache_manager import cache_result
 
@@ -14,7 +13,6 @@ def _strip_html(raw: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
-
 
 @cache_result(expire=3600, prefix="mastodon")
 def _fetch_mastodon(query: str, max_results: int = 10, instance: str = "mastodon.social") -> List[Dict[str, Any]]:
@@ -43,27 +41,11 @@ def _fetch_mastodon(query: str, max_results: int = 10, instance: str = "mastodon
     except Exception as e:
         return [{"error": f"Mastodon search error: {str(e)}"}]
 
-
-@tool
 def search_mastodon(query: str, max_results: int = 10, instance: str = "mastodon.social") -> List[Dict[str, Any]]:
     """
-    Searches public statuses (posts) on a single Mastodon instance (cached 1h).
-    Use this tool for open-source/tech-community sentiment or discussion on a topic.
-    No API key required. Note: Mastodon is federated, so this only searches the given
-    instance's index, not the whole fediverse.
-
-    Args:
-        query: The search topic or keywords.
-        max_results: Maximum number of statuses to retrieve (default is 10).
-        instance: The Mastodon instance host to search (default is 'mastodon.social').
-
-    Returns:
-        List of dictionaries with post metadata and full post text (Mastodon posts
-        are inherently short, so 'text' is not truncated), plus favourites/reblogs
-        counts as credibility/recency signal.
+    Searches public statuses on a single Mastodon instance (cached 1h).
     """
     return _fetch_mastodon(query=query, max_results=max_results, instance=instance)
-
 
 @cache_result(expire=3600, prefix="lemmy")
 def _fetch_lemmy(query: str, max_results: int = 10, instance: str = "lemmy.world") -> List[Dict[str, Any]]:
@@ -100,27 +82,8 @@ def _fetch_lemmy(query: str, max_results: int = 10, instance: str = "lemmy.world
     except Exception as e:
         return [{"error": f"Lemmy search error: {str(e)}"}]
 
-
-@tool
 def search_lemmy(query: str, max_results: int = 10, instance: str = "lemmy.world") -> List[Dict[str, Any]]:
     """
-    Searches posts on a single Lemmy instance (a federated, Reddit-like platform) (cached 1h).
-    Use this tool as an additional public-discussion source alongside Reddit, especially
-    for more technical/open-source-leaning communities. To read a post's comments,
-    pass the returned 'post_id' into extract_lemmy_post, along with this same 'instance'
-    value if you did not use the default.
-    No API key required. Note: Lemmy is federated, so this only searches the given
-    instance's index, not every Lemmy community.
-
-    Args:
-        query: The search topic or keywords.
-        max_results: Maximum number of posts to retrieve (default is 10).
-        instance: The Lemmy instance host to search (default is 'lemmy.world').
-
-    Returns:
-        List of dictionaries with post metadata, including 'post_id' for use with
-        extract_lemmy_post, and a capped (~300 char) preview of the post body --
-        the full post plus top comments are only fetched on demand via
-        extract_lemmy_post.
+    Searches posts on a single Lemmy instance (cached 1h).
     """
     return _fetch_lemmy(query=query, max_results=max_results, instance=instance)
