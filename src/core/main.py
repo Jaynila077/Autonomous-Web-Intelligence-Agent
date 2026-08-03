@@ -23,6 +23,7 @@ from langchain_groq import ChatGroq
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import trim_messages, AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import StructuredTool
 
 from src.tools.registry import (
     RESEARCHER_TOOLS,
@@ -97,6 +98,72 @@ def _strip_orphaned_tool_messages(messages: list) -> list:
         m for m in messages
         if not (isinstance(m, ToolMessage) and m.tool_call_id not in valid_call_ids)
     ]
+
+
+def _limit_tool_calls(tools: list, max_calls: int, limit_message: str) -> list:
+    """
+    Wraps a list of LangChain tools so that, combined across ALL of them, they
+    can be invoked at most `max_calls` times total. Calls beyond that don't
+    execute the underlying tool -- they return `limit_message` instead, which
+    becomes the ToolMessage content the model sees. That's what makes this a
+    hard cap rather than a request: even a model that ignores the system
+    prompt gets steered back via tool output, not just instructions.
+
+    Builds NEW StructuredTool wrappers rather than mutating the tools passed
+    in, since the tools coming out of select_dynamic_tools/RESEARCHER_TOOLS
+    are module-level objects from src.tools.registry, reused across runs --
+    mutating tool.func in place would double-wrap on the next pipeline run
+    and leave a stale, already-exhausted counter attached to the real tool.
+
+    The counter (`count`) is created fresh on every call to this function, so
+    calling it once per build_awis_agent() invocation gives each pipeline run
+    its own independent budget -- no manual reset needed.
+    """
+    count = [0]
+    wrapped_tools = []
+
+    for tool in tools:
+        original_func = getattr(tool, "func", None)
+        original_coroutine = getattr(tool, "coroutine", None)
+
+        if original_func is None and original_coroutine is None:
+            raise ValueError(
+                f"Tool '{tool.name}' has neither .func nor .coroutine -- "
+                f"can't wrap it with _limit_tool_calls."
+            )
+
+        def _make_wrapped(orig_func=original_func, orig_coro=original_coroutine, tool_name=tool.name):
+            def wrapped_func(*args, **kwargs):
+                count[0] += 1
+                if count[0] > max_calls:
+                    return limit_message
+                if orig_func is None:
+                    raise RuntimeError(f"'{tool_name}' is async-only; sync call not supported.")
+                return orig_func(*args, **kwargs)
+
+            async def wrapped_coroutine(*args, **kwargs):
+                count[0] += 1
+                if count[0] > max_calls:
+                    return limit_message
+                if orig_coro is not None:
+                    return await orig_coro(*args, **kwargs)
+                return orig_func(*args, **kwargs)
+
+            return wrapped_func, wrapped_coroutine
+
+        wrapped_func, wrapped_coroutine = _make_wrapped()
+
+        wrapped_tools.append(
+            StructuredTool.from_function(
+                func=wrapped_func,
+                coroutine=wrapped_coroutine,
+                name=tool.name,
+                description=tool.description,
+                args_schema=tool.args_schema,
+            )
+        )
+
+    return wrapped_tools
 
 
 class TokenLoggerCallback(BaseCallbackHandler):
@@ -610,6 +677,26 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
     dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
 
+    # Hard cap on Researcher's domain tool calls. This is enforced in code, not
+    # just via the system prompt below -- the model can (and on weaker fallback
+    # providers, will) ignore a purely textual "call each tool once" instruction.
+    # Wrapping the tools themselves means the 7th+ call never actually executes
+    # a search/extract -- it returns RESEARCHER_LIMIT_MESSAGE instead, which
+    # nudges the model to write raw/research.md regardless of how well it's
+    # following instructions.
+    RESEARCHER_TOOL_CAP = 6
+    RESEARCHER_LIMIT_MESSAGE = (
+        f"Tool-call limit reached ({RESEARCHER_TOOL_CAP} domain tool calls used "
+        f"for this run). Do not call any more research tools -- this and any "
+        f"further calls will keep returning this same message. Write "
+        f"raw/research.md now, synthesizing whatever you've already gathered."
+    )
+    limited_research_tools = _limit_tool_calls(
+        dynamic_research_tools,
+        max_calls=RESEARCHER_TOOL_CAP,
+        limit_message=RESEARCHER_LIMIT_MESSAGE,
+    )
+
     agent = create_deep_agent(
         model=llm,
         backend=backend,
@@ -667,9 +754,19 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "paper URLs, arXiv IDs, and code repo links. Every tool call you make "
                     "is automatically captured to raw/research_raw.md for you -- you do "
                     "not need to transcribe or copy tool output anywhere yourself.\n\n"
-                    "Step 4: If a tool errors, ignore that tool and keep using the others. "
-                    "Do not browse the VFS for substitute data. Your only VFS actions this "
-                    "step: read raw/plan.md, write raw/research.md.\n\n"
+                    f"You have a HARD LIMIT of {RESEARCHER_TOOL_CAP} domain tool calls "
+                    f"total for this run, combined across all tools. Once you hit that "
+                    f"limit, further tool calls will stop executing and instead return a "
+                    f"message telling you the limit is reached -- at that point stop "
+                    f"calling tools immediately and write raw/research.md with whatever "
+                    f"you've gathered so far, even if you haven't covered all 4 "
+                    f"dimensions. Budget your calls across the 4 dimensions accordingly "
+                    f"(e.g. roughly 1-2 calls per dimension) rather than spending them "
+                    f"all on one.\n\n"
+                    "Step 4: If a tool errors, ignore that tool and keep using the others "
+                    "-- an error still counts toward your call limit. Do not browse the "
+                    "VFS for substitute data. Your only VFS actions this step: read "
+                    "raw/plan.md, write raw/research.md.\n\n"
                     "Step 5: Write raw/research.md. This is your synthesis: readable prose "
                     "covering every hard number, date, paper link, repo URL you "
                     "found and a brief conclusion based on your findings.\n\n"
@@ -677,7 +774,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "retry, do not edit."
 
                 ),
-                "tools": dynamic_research_tools,
+                "tools": limited_research_tools,
             },
             {
                 "name": "Verifier",
