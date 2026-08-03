@@ -45,12 +45,15 @@ message_trimmer = trim_messages(
 
 class TokenLoggerCallback(BaseCallbackHandler):
     """
-    Real-time token usage and live tool execution logger callback.
+    Real-time token usage and live tool execution logger callback (Windows CP1252 safe).
     """
     def on_tool_start(self, serialized, input_str, **kwargs):
         name = serialized.get("name") if isinstance(serialized, dict) else str(serialized)
-        print(f"\n🔧 [LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
-        print(f"   └─ Parameters : {input_str}\n", flush=True)
+        try:
+            print(f"\n[LIVE TOOL EXECUTION] Executing Tool: '{name}'", flush=True)
+            print(f"   └─ Parameters : {input_str}\n", flush=True)
+        except Exception:
+            pass
 
     def on_llm_end(self, response, **kwargs):
         for generations in response.generations:
@@ -61,11 +64,14 @@ class TokenLoggerCallback(BaseCallbackHandler):
                     prompt_tok = token_usage.get("prompt_tokens") or token_usage.get("prompt_eval_count") or "N/A"
                     compl_tok = token_usage.get("completion_tokens") or token_usage.get("eval_count") or "N/A"
                     total_tok = token_usage.get("total_tokens") or "N/A"
-                    print(f"\n⚡ [LLM Token Usage Report]", flush=True)
-                    print(f"   ├─ Prompt Tokens     : {prompt_tok}", flush=True)
-                    print(f"   ├─ Completion Tokens : {compl_tok}", flush=True)
-                    print(f"   ├─ Total Tokens      : {total_tok}", flush=True)
-                    print(f"   └─ Cost              : $0.00 (100% FREE)\n", flush=True)
+                    try:
+                        print(f"\n[LLM Token Usage Report]", flush=True)
+                        print(f"   ├─ Prompt Tokens     : {prompt_tok}", flush=True)
+                        print(f"   ├─ Completion Tokens : {compl_tok}", flush=True)
+                        print(f"   ├─ Total Tokens      : {total_tok}", flush=True)
+                        print(f"   └─ Cost              : $0.00 (100% FREE)\n", flush=True)
+                    except Exception:
+                        pass
 
 
 def _validate_groq_model(model_name: str, api_key: str) -> None:
@@ -176,6 +182,7 @@ def build_production_llm():
             openai_api_base="https://integrate.api.nvidia.com/v1",
             temperature=0.0,
             max_retries=5,
+            parallel_tool_calls=False,
             callbacks=[token_logger]
         )
 
@@ -189,6 +196,7 @@ def build_production_llm():
             groq_api_key=groq_key,
             temperature=0.0,
             max_retries=5,
+            parallel_tool_calls=False,
             callbacks=[token_logger]
         )
 
@@ -200,6 +208,7 @@ def build_production_llm():
             openai_api_base="https://models.inference.ai.azure.com",
             temperature=0.0,
             max_retries=5,
+            parallel_tool_calls=False,
             callbacks=[token_logger]
         )
 
@@ -225,6 +234,7 @@ def build_production_llm():
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0,
             max_retries=5,
+            parallel_tool_calls=False,
             callbacks=[token_logger]
         )
 
@@ -238,25 +248,23 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
     os.makedirs(reports_path, exist_ok=True)
 
     llm = build_production_llm()
-    backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
-    dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
+    backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=False)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
 
     agent = create_deep_agent(
         model=llm,
         backend=backend,
         tools=[],
         system_prompt=(
-            "Lead Orchestrator for AWIS. Execute all 4 subagent steps sequentially without skipping any step: "
-            "Step 1: Delegate to 'Planner' to generate research plan. "
-            "Step 2: Delegate to 'Researcher' to execute search tools and gather raw facts. "
-            "Step 3: Delegate to 'Verifier' to audit findings. "
-            "Step 4: Delegate to 'Reporter' to compile final report and call save_intelligence_report. "
-            "CRITICAL: You MUST execute Step 1, Step 2, and Step 3 in sequence before calling Reporter! Do NOT skip Researcher!"
+            "Lead Orchestrator for AWIS. Your subagents are strictly: 'Planner', 'Researcher', 'Verifier', and 'Reporter'. "
+            "1. Delegate to 'Researcher' on Turn 1 to execute search tools and gather live web facts. "
+            "2. Delegate to 'Verifier' on Turn 2 to audit findings for credibility. "
+            "3. CRITICAL FOR REPORTER: When delegating to 'Reporter', you MUST copy ALL raw findings, web facts, numbers, dates, paper links, and repo links from Researcher and Verifier into the description parameter so Reporter has complete factual context."
         ),
         subagents=[
             {
                 "name": "Planner",
-                "description": "Creates structured multi-domain research plan.",
+                "description": "STEP 1: Creates structured multi-domain research plan.",
                 "system_prompt": (
                     "Create a concise 4-step research plan covering: "
                     "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise."
@@ -265,16 +273,16 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
             },
             {
                 "name": "Researcher",
-                "description": "Gathers raw data across specialized tools.",
+                "description": "STEP 2 (ALWAYS CALL FIRST ON TURN 1): Scrapes live web search data via search_tavily, Wikipedia, and GitHub repos. MUST be executed before Reporter.",
                 "system_prompt": (
-                    "Execute assigned research tools to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
+                    "Execute assigned research tools (search_tavily, fetch_wiki_data) to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
                     "Return a clean, factual summary containing all hard numbers, dates, paper links, and repo URLs."
                 ),
                 "tools": dynamic_research_tools,
             },
             {
                 "name": "Verifier",
-                "description": "Audits research findings for accuracy.",
+                "description": "STEP 3: Audits raw findings gathered by Researcher for credibility.",
                 "system_prompt": (
                     "Audit research findings gathered by Researcher for credibility, source quality, and technical accuracy. "
                     "Use assigned search tools to cross-verify claims and return verified facts concisely."
@@ -283,18 +291,20 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
             },
             {
                 "name": "Reporter",
-                "description": "Synthesizes final comprehensive intelligence brief.",
+                "description": "STEP 4 (STRICTLY FINAL STEP - NEVER CALL FIRST): Compiles final brief. CANNOT be called until Researcher finishes.",
                 "system_prompt": (
-                    "Compile an exhaustive, highly detailed, production-grade intelligence report. "
-                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, "
-                    "concrete architecture explanations, and verified benchmarks. Structure into 6 clear sections: "
+                    "Compile an exhaustive, highly detailed, production-grade intelligence report (minimum 1,500 words) using the research findings provided in your task description. "
+                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, concrete architecture explanations, and verified benchmarks. "
+                    "Structure between 9-15 clear sections: "
                     "1. Executive Summary & Core Insights, "
                     "2. Deep Technical System Architecture & Workflows, "
                     "3. Production Code Patterns & GitHub Repositories (with links), "
                     "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
                     "5. Risk, Bottlenecks & Production Trade-offs, "
                     "6. Verified Source Citation Index. "
-                    "Write in thorough markdown depth, call save_intelligence_report ONCE, and return the report. Do NOT call save_intelligence_report again."
+                    "NEVER use dummy placeholder text like 'content goes here'. Write complete, thorough, comprehensive paragraphs for every section. "
+                    "Call save_intelligence_report ONCE passing the complete 6-section report string as report_content. "
+                    "CRITICAL: Once save_intelligence_report finishes, output 'REPORT_SAVED_SUCCESSFULLY' and stop execution immediately."
                 ),
                 "tools": REPORTER_TOOLS,
             },

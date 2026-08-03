@@ -65,43 +65,67 @@ AWIS_TOOL_REGISTRY = [
 ]
 
 
-def select_dynamic_tools(query: str, max_tools: int = 2) -> list:
+def select_dynamic_tools(query: str, max_tools: int = 4) -> list:
     """
-    Dynamic Tool Router: Inspects the user's research query and selects 
-    the top 2 most relevant tools from all active tools in AWIS_TOOL_REGISTRY.
-    Preserves 100% of AWIS's multi-source USP while eliminating schema noise.
+    Intelligent Semantic Tool Router: Evaluates query intent against tool capability profiles
+    and dynamically selects up to max_tools (default: 4) optimal tools.
+    Eliminates schema noise while preserving multi-source research capabilities.
     """
     q = query.lower()
-    selected = []
+    tool_map = {}
 
-    def _add(tool):
-        if tool not in selected:
-            selected.append(tool)
+    # Initialize all tools with base priority score
+    for tool in AWIS_TOOL_REGISTRY:
+        if tool != save_intelligence_report:
+            tool_map[tool.name] = {"tool": tool, "score": 0}
 
-    # Domain 1: Academic & Research
-    if any(k in q for k in ["paper", "arxiv", "research", "architecture", "model", "algorithm", "study", "ai"]):
-        _add(search_arxiv)
-        _add(search_arxiv_papers)
-    if any(k in q for k in ["clinical", "trial", "medical", "drug", "patient", "health", "disease"]):
-        _add(search_clinical_trials)
+    def _boost(tool_name: str, points: int):
+        if tool_name in tool_map:
+            tool_map[tool_name]["score"] += points
 
-    # Domain 2: Code & Engineering
-    if any(k in q for k in ["code", "repo", "github", "python", "framework", "library", "sdk"]):
-        _add(search_github_repos)
-    if any(k in q for k in ["stack", "overflow", "error", "bug", "how to", "issue"]):
-        _add(search_stackexchange)
+    # 1. Broad Real-Time Web & News (High priority for general, city, industry, market, or business queries)
+    web_keywords = ["pune", "india", "city", "industry", "market", "job", "career", "development", "trend", "news", "company", "startup", "economy", "growth", "state"]
+    if any(k in q for k in web_keywords):
+        _boost("search_tavily", 50)
+        _boost("search_web_news", 40)
 
-    # Domain 3: Community & Social Sentiment
-    if any(k in q for k in ["mastodon", "lemmy", "community", "discussion", "fediverse", "social"]):
-        _add(search_mastodon)
-        _add(search_lemmy)
+    # 2. Historical & Foundational Background (Wikipedia)
+    wiki_keywords = ["history", "background", "overview", "what is", "definition", "pune", "city", "concept", "country"]
+    if any(k in q for k in wiki_keywords):
+        _boost("fetch_wiki_data", 45)
 
-    # Domain 4: Media & Video Transcripts
-    if any(k in q for k in ["youtube", "video", "talk", "lecture", "transcript"]):
-        _add(search_youtube_transcripts)
+    # 3. Software Engineering & Code Repositories
+    code_keywords = ["code", "repo", "github", "python", "framework", "library", "sdk", "api", "architecture", "implementation", "open source"]
+    if any(k in q for k in code_keywords):
+        _boost("search_github_repos", 45)
+    if any(k in q for k in ["stack", "overflow", "error", "bug", "how to", "issue", "exception"]):
+        _boost("search_stackexchange", 45)
 
-    # Core Foundation Fallbacks (Guarantees broad web coverage)
-    _add(search_tavily)
-    _add(fetch_wiki_data)
+    # 4. Academic Research & arXiv Papers (Strictly triggered for explicit paper/math/study queries)
+    academic_keywords = ["arxiv", "paper", "abstract", "peer-reviewed", "journal", "citation", "theorem", "proof", "benchmark dataset"]
+    if any(k in q for k in academic_keywords):
+        _boost("search_arxiv", 60)
+        _boost("search_arxiv_papers", 55)
 
-    return selected[:max_tools]
+    # Medical / Clinical
+    if any(k in q for k in ["clinical", "trial", "medical", "drug", "patient", "health", "disease", "pharma"]):
+        _boost("search_clinical_trials", 60)
+
+    # Community Sentiment
+    if any(k in q for k in ["mastodon", "lemmy", "community", "opinion", "sentiment", "discussion", "social"]):
+        _boost("search_mastodon", 40)
+        _boost("search_lemmy", 40)
+
+    # YouTube Transcripts
+    if any(k in q for k in ["youtube", "video", "talk", "lecture", "transcript", "presentation"]):
+        _boost("search_youtube_transcripts", 50)
+
+    # Always ensure search_tavily and fetch_wiki_data have solid default scores for broad coverage
+    _boost("search_tavily", 20)
+    _boost("fetch_wiki_data", 15)
+
+    # Sort tools by score descending
+    sorted_items = sorted(tool_map.values(), key=lambda item: item["score"], reverse=True)
+
+    # Return top max_tools unique tools
+    return [item["tool"] for item in sorted_items[:max_tools]]

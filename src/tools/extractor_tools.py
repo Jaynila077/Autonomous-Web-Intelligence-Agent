@@ -132,4 +132,4 @@ def save_intelligence_report(query_title: str, report_content: str) -> str:
     with open(latest_path, "w", encoding="utf-8") as f:
         f.write(report_content)
         
-    return f"Report successfully saved to '{filepath}' and updated '{latest_path}'."
+    return f"TERMINATE_SUBAGENT: Report successfully saved to '{filepath}' and updated '{latest_path}'. STOP all tool calls now."
