@@ -646,8 +646,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "2. Use your tools to research all 4 parts of the plan: Academic, "
                     "Web/Wiki, Developer code, Community opinion.\n"
                     "3. Write everything you found — facts, dates, paper links, repo "
-                    "links — to raw/research.md using write_file.\n"
-                    "4. Return a short summary as your final message.\n\n"
+                    "links - as well as a summary conclusion of your findings — to raw/research.md using write_file.\n"
+                    "4. Return the short summary as your final message. \n\n"
                     "Only call one tool at a time, wait for it to finish, then call the next. Do not call tools in parallel."
                     "If a tool fails, skip it and keep going with the others."
                 ),
@@ -678,7 +678,8 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                 "description": "Synthesizes final comprehensive intelligence brief.",
                 "system_prompt": (
                     f"TOPIC: '{query}'.\n\n"
-                    "1. Call read_file on raw/research.md and raw/verified.md. Base your "
+                    "1. Call read_file on raw/research.md. after getting its content, "
+                    "call read_file on raw/verified.md. Base your "
                     "report only on these two files.\n"
                     "2. Write a report with these 6 sections, using real facts, dates, "
                     "paper links, and repo links from the files:\n"
