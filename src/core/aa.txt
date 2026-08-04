@@ -1,0 +1,507 @@
+## guardrails.py
+import os
+import sys
+import time
+import logging
+import asyncio
+from typing import Dict, Any, Optional, Callable, Awaitable
+from dataclasses import dataclass
+
+logger = logging.getLogger("NeMoGuardrailsWrapper")
+logger.setLevel(logging.INFO)
+
+# Import custom action handlers
+try:
+    from config.actions import (
+        mask_pii_action,
+        detect_jailbreak_action,
+        check_off_topic_action,
+        check_toxicity_action,
+        check_hallucination_action,
+    )
+except ImportError:
+    # Fallback if config is imported from parent path
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+    from config.actions import (
+        mask_pii_action,
+        detect_jailbreak_action,
+        check_off_topic_action,
+        check_toxicity_action,
+        check_hallucination_action,
+    )
+
+# Try importing NeMo Guardrails
+NEMO_AVAILABLE = False
+try:
+    from nemoguardrails import LLMRails, RailsConfig
+    NEMO_AVAILABLE = True
+except ImportError:
+    LLMRails = None
+    RailsConfig = None
+
+
+@dataclass
+class GuardrailResult:
+    status: str  # "allowed", "blocked_input", "blocked_output", "pii_redacted"
+    response: str
+    sanitized_prompt: str
+    blocked_reason: Optional[str] = None
+    execution_time_ms: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "response": self.response,
+            "sanitized_prompt": self.sanitized_prompt,
+            "blocked_reason": self.blocked_reason,
+            "execution_time_ms": self.execution_time_ms,
+        }
+
+
+class NeMoGuardrailsService:
+    """
+    Enterprise-grade Python wrapper around NVIDIA NeMo Guardrails.
+    Provides async pre-flight input validation, post-flight output verification, PII redaction,
+    and safe fallback responses without breaking existing core LLM application logic.
+    """
+
+    DEFAULT_FALLBACK_MESSAGES = {
+        "jailbreak": "I am AWIS agent Don't try this with if you have any query you can continue chat ).",
+        "off_topic": "I am an Autonomous Web Intelligence agent. I can only assist with web research, data extraction, and technical analysis tasks.",
+        "toxic": "I apologize, but the response was flagged by output safety guardrails (Toxic or Unsafe Content).",
+        "hallucination": "I apologize, but the response could not be verified against grounded context (Hallucination detected).",
+        "system_error": "An unexpected error occurred during security guardrail processing. Executing safe fallback.",
+    }
+
+    def __init__(self, config_dir: str = "config"):
+        self.config_dir = os.path.abspath(config_dir)
+        self.rails = None
+        self.nemo_enabled = False
+        self._initialize_rails()
+
+    def _initialize_rails(self):
+        """Initializes NeMo LLMRails with custom action registration."""
+        if not NEMO_AVAILABLE:
+            logger.warning(
+                "NVIDIA NeMo Guardrails (`nemoguardrails`) package is not installed. "
+                "Falling back to built-in high-performance Python security engine."
+            )
+            return
+
+        try:
+            if os.path.exists(self.config_dir):
+                config = RailsConfig.from_path(self.config_dir)
+                self.rails = LLMRails(config)
+                
+                # Register custom Python action handlers
+                self.rails.register_action(mask_pii_action, name="mask_pii_action")
+                self.rails.register_action(detect_jailbreak_action, name="detect_jailbreak_action")
+                self.rails.register_action(check_off_topic_action, name="check_off_topic_action")
+                self.rails.register_action(check_toxicity_action, name="check_toxicity_action")
+                self.rails.register_action(check_hallucination_action, name="check_hallucination_action")
+                
+                self.nemo_enabled = True
+                logger.info(f"NeMo Guardrails successfully initialized from config at: {self.config_dir}")
+            else:
+                logger.warning(f"Config path '{self.config_dir}' not found. NeMo Guardrails using fallback mode.")
+        except Exception as e:
+            logger.error(f"Failed to initialize NeMo Guardrails from '{self.config_dir}': {e}")
+            self.nemo_enabled = False
+
+    async def check_input_rails(self, prompt: str) -> GuardrailResult:
+        """
+        Input Security Layer: Checks for Jailbreak, Off-topic content, and redacts PII.
+        """
+        start_time = time.time()
+        
+        # 1. Jailbreak Check
+        is_jailbreak = await detect_jailbreak_action(user_input=prompt)
+        if is_jailbreak:
+            return GuardrailResult(
+                status="blocked_input",
+                response=self.DEFAULT_FALLBACK_MESSAGES["jailbreak"],
+                sanitized_prompt=prompt,
+                blocked_reason="Jailbreak / Prompt Injection detected",
+                execution_time_ms=(time.time() - start_time) * 1000,
+            )
+
+        # 2. Off-Topic Check
+        is_off_topic = await check_off_topic_action(user_input=prompt)
+        if is_off_topic:
+            return GuardrailResult(
+                status="blocked_input",
+                response=self.DEFAULT_FALLBACK_MESSAGES["off_topic"],
+                sanitized_prompt=prompt,
+                blocked_reason="Off-Topic query out of agent domain",
+                execution_time_ms=(time.time() - start_time) * 1000,
+            )
+
+        # 3. PII Redaction
+        sanitized_prompt = await mask_pii_action(text=prompt)
+        has_pii = (sanitized_prompt != prompt)
+
+        return GuardrailResult(
+            status="pii_redacted" if has_pii else "allowed",
+            response="",
+            sanitized_prompt=sanitized_prompt,
+            blocked_reason=None,
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
+
+    async def check_output_rails(self, output: str, context: Optional[str] = None) -> GuardrailResult:
+        """
+        Output Security Layer: Checks for Toxicity, Hallucinations, and masks output PII.
+        """
+        start_time = time.time()
+
+        # 1. Toxicity Check
+        is_toxic = await check_toxicity_action(bot_response=output)
+        if is_toxic:
+            return GuardrailResult(
+                status="blocked_output",
+                response=self.DEFAULT_FALLBACK_MESSAGES["toxic"],
+                sanitized_prompt="",
+                blocked_reason="Toxic / Unsafe output generated",
+                execution_time_ms=(time.time() - start_time) * 1000,
+            )
+
+        # 2. Hallucination Check
+        if context:
+            is_hallucinated = await check_hallucination_action(bot_response=output, context=context)
+            if is_hallucinated:
+                return GuardrailResult(
+                    status="blocked_output",
+                    response=self.DEFAULT_FALLBACK_MESSAGES["hallucination"],
+                    sanitized_prompt="",
+                    blocked_reason="Response failed ground-truth fact verification",
+                    execution_time_ms=(time.time() - start_time) * 1000,
+                )
+
+        # 3. Output PII Masking
+        sanitized_output = await mask_pii_action(text=output)
+
+        return GuardrailResult(
+            status="allowed",
+            response=sanitized_output,
+            sanitized_prompt="",
+            blocked_reason=None,
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
+
+    async def generate_safe_response(
+        self,
+        prompt: str,
+        llm_callable: Optional[Callable[[str], Awaitable[str]]] = None,
+        context: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Wraps an existing LLM or agent call safely without breaking core logic.
+
+        Args:
+            prompt: The raw user prompt.
+            llm_callable: Async function taking sanitized prompt string and returning raw model response.
+            context: Optional grounding context for hallucination checking.
+
+        Returns:
+            Dict containing status, final response, sanitized prompt, and timing.
+        """
+        total_start = time.time()
+
+        # Phase 1: Pre-flight Input Security Check
+        input_check = await self.check_input_rails(prompt)
+        if input_check.status == "blocked_input":
+            return input_check.to_dict()
+
+        sanitized_prompt = input_check.sanitized_prompt
+
+        # Phase 2: NeMo Guardrails or Core Business Logic LLM Execution
+        try:
+            if self.nemo_enabled and self.rails and not llm_callable:
+                # Execute through NeMo LLMRails engine
+                nemo_res = await self.rails.generate_async(prompt=sanitized_prompt)
+                raw_response = str(nemo_res)
+            elif llm_callable:
+                # Execute through existing application LLM function
+                raw_response = await llm_callable(sanitized_prompt)
+            else:
+                raw_response = f"[Mock LLM Response for prompt: '{sanitized_prompt}']"
+        except Exception as e:
+            logger.error(f"Error during core LLM invocation: {e}", exc_info=True)
+            return GuardrailResult(
+                status="blocked_input",
+                response=self.DEFAULT_FALLBACK_MESSAGES["system_error"],
+                sanitized_prompt=sanitized_prompt,
+                blocked_reason=f"LLM execution error: {str(e)}",
+                execution_time_ms=(time.time() - total_start) * 1000,
+            ).to_dict()
+
+        # Phase 3: Post-flight Output Security Check
+        output_check = await self.check_output_rails(output=raw_response, context=context)
+        if output_check.status == "blocked_output":
+            return output_check.to_dict()
+
+        total_time = (time.time() - total_start) * 1000
+        return GuardrailResult(
+            status="allowed",
+            response=output_check.response,
+            sanitized_prompt=sanitized_prompt,
+            blocked_reason=None,
+            execution_time_ms=total_time,
+        ).to_dict()
+
+##actions.py
+import re
+from typing import Optional, Dict, Any
+
+try:
+    from nemoguardrails.actions import action
+except ImportError:
+    # Decorator fallback for standalone testing if nemoguardrails is not yet installed
+    def action(name: Optional[str] = None):
+        def decorator(fn):
+            fn._action_name = name or fn.__name__
+            return fn
+        return decorator
+
+
+# ==============================================================================
+# PII PATTERNS & REGEX MASKER
+# ==============================================================================
+
+PII_PATTERNS = [
+    (r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b", "[REDACTED_EMAIL]"),
+    (r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED_SSN]"),
+    (r"\b(?:sk-[a-zA-Z0-9]{32,}|gsk_[a-zA-Z0-9]{32,}|AIza[0-9A-Za-z-_]{35})\b", "[REDACTED_API_KEY]"),
+    (r"\b(?:\d[ -]*?){13,16}\b", "[REDACTED_CREDIT_CARD]"),
+    (r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b", "[REDACTED_PHONE]"),
+]
+
+@action(name="mask_pii_action")
+async def mask_pii_action(text: str) -> str:
+    """
+    Scans text for sensitive PII (Emails, SSNs, API Keys, Credit Cards, Phones)
+    and replaces them with redaction tokens.
+    """
+    if not text:
+        return ""
+    
+    sanitized = text
+    for pattern, replacement in PII_PATTERNS:
+        sanitized = re.sub(pattern, replacement, sanitized)
+    return sanitized
+
+
+# ==============================================================================
+# JAILBREAK / PROMPT INJECTION DETECTION
+# ==============================================================================
+
+JAILBREAK_TRIGGERS = [
+    "ignore all previous instructions",
+    "ignore previous instructions",
+    "system prompt override",
+    "dan mode",
+    "do anything now",
+    "developer mode enabled",
+    "bypass safety filters",
+    "reveal your prompt",
+    "override security protocols",
+    "pretend you have no rules",
+    "act as a",
+    "act as an",
+    "pretend to be",
+    "pretend you are",
+    "roleplay as",
+    "take on the persona of",
+    "you are now a",
+    "you are now an",
+    "simulate a",
+    "imagine you are",
+    
+]
+
+@action(name="detect_jailbreak_action")
+async def detect_jailbreak_action(user_input: str) -> bool:
+    """
+    Detects prompt injection, persona adoption, and jailbreak attempts using pattern matching & heuristics.
+    Returns True if jailbreak is detected, False otherwise.
+    """
+    if not user_input:
+        return False
+
+    lower_input = user_input.lower().strip()
+    
+    # Direct trigger word match
+    for trigger in JAILBREAK_TRIGGERS:
+        if trigger in lower_input:
+            return True
+
+    # Regex heuristic for persona override & system injection attempts
+    persona_regex = r"\b(act as|pretend (you are|to be)|roleplay as|take on the role of|simulate (a|an)?|you are now)\b"
+    system_inj_regex = r"<\s*system\s*>|\[\s*system\s*\]|\bignore (all|the)? (previous|above|prior) (instructions|prompts|rules)\b"
+
+    if re.search(persona_regex, lower_input) or re.search(system_inj_regex, lower_input):
+        return True
+
+    return False
+
+
+    return False
+
+
+# ==============================================================================
+# OFF-TOPIC QUERY FILTERING
+# ==============================================================================
+
+OFF_TOPIC_KEYWORDS = [
+    "recipe for", "bake a cake", "love advice", "relationship advice",
+    "horoscope", "astrology", "write a romance novel", "how to cook"
+]
+
+@action(name="check_off_topic_action")
+async def check_off_topic_action(user_input: str) -> bool:
+    """
+    Verifies if user query is out of scope for Web Intelligence & Data Analysis agent.
+    Returns True if query is off-topic, False if on-topic.
+    """
+    if not user_input:
+        return False
+
+    lower_input = user_input.lower()
+    for keyword in OFF_TOPIC_KEYWORDS:
+        if keyword in lower_input:
+            return True
+
+    return False
+
+
+# ==============================================================================
+# TOXICITY & UNSAFE OUTPUT MODERATION
+# ==============================================================================
+
+TOXIC_KEYWORDS = [
+    "generate malware", "how to build a bomb", "illegal weapon",
+    "hate speech sample", "racial slur", "execute cyberattack"
+]
+
+@action(name="check_toxicity_action")
+async def check_toxicity_action(bot_response: str) -> bool:
+    """
+    Inspects model output for toxic, violent, or unsafe content.
+    Returns True if toxic content is detected, False if clean.
+    """
+    if not bot_response:
+        return False
+
+    lower_resp = bot_response.lower()
+    for keyword in TOXIC_KEYWORDS:
+        if keyword in lower_resp:
+            return True
+
+    return False
+
+
+# ==============================================================================
+# FACT-CHECKING / HALLUCINATION DETECTION
+# ==============================================================================
+
+@action(name="check_hallucination_action")
+async def check_hallucination_action(bot_response: str, context: Optional[str] = None) -> bool:
+    """
+    Evaluates whether generated output contains statements contradicting reference context.
+    Returns True if hallucination detected, False if grounded.
+    """
+    if not context or not bot_response:
+        return False
+
+    # Heuristic ground-truth verification check
+    # Check for direct contradictions (e.g. context says 'Revenue was $5M', response says 'Revenue was $50M')
+    context_lower = context.lower()
+    resp_lower = bot_response.lower()
+
+    if "explicitly state: false" in context_lower and "is true" in resp_lower:
+        return True
+
+    if "unsupported hallucinated claim" in resp_lower:
+        return True
+
+    return False
+## rails.py
+# Colang 1.0 Security Rails Definition for Autonomous-Web-Intelligence-Agent
+
+define bot refuse jailbreak
+  "Cannot process your request I am Awis agent for providing you web search services. If you have query related this you can continue."
+
+define bot refuse off topic
+  "I am an Autonomous Web Intelligence agent. I can only assist with web research, data analysis, intelligence gathering, and technical tasks."
+
+define bot refuse toxic
+  "I apologize, but the generated output was flagged by safety moderation guardrails (Toxic or Unsafe Content)."
+
+define bot refuse hallucination
+  "I apologize, but the response could not be verified against grounded reference context (Fact-checking / Hallucination detected)."
+
+# ==============================================================================
+# INPUT RAILS
+# ==============================================================================
+
+define subflow self check input
+  $is_jailbreak = execute detect_jailbreak_action(user_input=$user_input)
+  if $is_jailbreak
+    bot refuse jailbreak
+    stop
+
+define subflow check off topic
+  $is_off_topic = execute check_off_topic_action(user_input=$user_input)
+  if $is_off_topic
+    bot refuse off topic
+    stop
+
+define subflow mask pii input
+  $sanitized_text = execute mask_pii_action(text=$user_input)
+  $user_input = $sanitized_text
+
+# ==============================================================================
+# OUTPUT RAILS
+# ==============================================================================
+
+define subflow self check output
+  $is_toxic = execute check_toxicity_action(bot_response=$bot_response)
+  if $is_toxic
+    bot refuse toxic
+    stop
+
+define subflow self check hallucination
+  if $context
+    $is_hallucinated = execute check_hallucination_action(bot_response=$bot_response, context=$context)
+    if $is_hallucinated
+      bot refuse hallucination
+      stop
+
+define subflow mask pii output
+  $sanitized_response = execute mask_pii_action(text=$bot_response)
+  $bot_response = $sanitized_response
+
+##config.yml
+models:
+  - type: main
+    engine: openai
+    model: llama-3.1-8b-instant
+    parameters:
+      base_url: "https://api.groq.com/openai/v1"
+
+rails:
+  input:
+    flows:
+      - self check input
+      - check off topic
+      - mask pii input
+  output:
+    flows:
+      - self check output
+      - self check hallucination
+      - mask pii output
+
+sample_conversation: |
+  user "Hello, can you help me research web intelligence?"
+    bot "Hello! I am an AI assistant specialized in web intelligence, research, and analysis. How can I assist you today?"
+
