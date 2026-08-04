@@ -6,6 +6,10 @@ from enum import Enum
 from typing import Optional, Generator, List
 from sqlmodel import SQLModel, Field, Relationship, create_engine, Session
 from sqlalchemy import Column, Enum as SAEnum
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
