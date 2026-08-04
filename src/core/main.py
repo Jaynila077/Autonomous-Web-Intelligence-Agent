@@ -705,10 +705,11 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             f"Lead Orchestrator for AWIS. TOPIC: '{query}'.\n\n"
             
             "Run these 4 stages in this exact order, one at a time:\n"
-            "1. Delegate to Planner. It writes raw/plan.md.\n"
-            "2. Delegate to Researcher. Tell it to read raw/plan.md and cover all 4 "
-            "dimensions in it. It writes raw/research.md.\n"
-            "3. Delegate to Verifier. Tell it to read raw/research_raw.md and raw/research.md and write raw/verified.md.\n"
+            "1. Delegate to Planner. It writes raw/plan.md. If plan.md already exists, skip to step 2.\n"
+            "2. Delegate to Researcher. Tell it to read raw/plan.md and cover all 4"
+            "dimensions in it. It writes raw/research.md. If research.md already exists, skip to step 3.\n"
+            "3. Delegate to Verifier. Tell it to read raw/research_raw.md and raw/research.md and write raw/verified.md."
+            "If verified.md already exists, skip to step 4.\n"
             "4. Delegate to Reporter. Tell it to read raw/research.md and raw/verified.md, "
             "then call save_intelligence_report.\n\n"
 
@@ -740,8 +741,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "Write a short 4-part research plan covering: Academic, Web/Wiki, "
                     "Developer code, Community opinion. Be short and direct\n"
 
-                    "Call write_file to save it as raw/plan.md.\n"
-                    "Then return the plan as your final message."
+                    "Call write_file to save it as raw/plan.md. If plan.md already exists, do nothing. Move on to next step.\n"
                 ),
                 "tools": [],
             },
