@@ -1,6 +1,7 @@
 # src/core/main.py
 import sys
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,6 +57,11 @@ class MockAWISAgent:
                 )
         else:
             # Fallback when zero API keys are set
+            # -------------------------------------------------------------------------
+            # TEMP: artificial delay for restart-test purposes, remove after testing
+            # -------------------------------------------------------------------------
+            time.sleep(8)
+
             report_content = (
                 f"# Mock Intelligence Brief (Local Echo)\n\n"
                 f"**Query:** {user_query}\n\n"
