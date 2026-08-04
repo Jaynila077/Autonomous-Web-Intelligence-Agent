@@ -270,53 +270,75 @@ def build_awis_agent(query: str = "Agentic AI Architectures"):
                     "Academic, Web/Wiki, Developer code, and Community opinion. Be direct and concise."
                 ),
                 "tools": [],
+                "middleware": [],
             },
             {
                 "name": "Researcher",
-                "description": "STEP 2 (ALWAYS CALL FIRST ON TURN 1): Scrapes live web search data via search_tavily, Wikipedia, and GitHub repos. MUST be executed before Reporter.",
+                "description": "STEP 2 (ALWAYS CALL FIRST ON TURN 1): Scrapes live web search data via assigned tools (search_tavily, fetch_wiki_data, search_web_news, etc.). MUST be executed before Reporter.",
                 "system_prompt": (
-                    "Execute assigned research tools (search_tavily, fetch_wiki_data) to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
+                    "Execute 2 to 3 assigned research tools to gather facts, paper abstracts, paper URLs, arXiv IDs, and code repos. "
                     "Return a clean, factual summary containing all hard numbers, dates, paper links, and repo URLs."
                 ),
                 "tools": dynamic_research_tools,
+                "middleware": [],
             },
             {
                 "name": "Verifier",
                 "description": "STEP 3: Audits raw findings gathered by Researcher for credibility.",
                 "system_prompt": (
-                    "Audit research findings gathered by Researcher for credibility, source quality, and technical accuracy. "
-                    "Use assigned search tools to cross-verify claims and return verified facts concisely."
+                    "EFFICIENT VERIFICATION MANDATE: You do NOT need to verify data for every tool used in the research phase. "
+                    "Selectively execute 1 to 2 primary tools (e.g., fetch_wiki_data or search_tavily) to quickly verify core claims, dates, and numbers, then summarize credibility concisely."
                 ),
                 "tools": VERIFIER_TOOLS,
+                "middleware": [],
             },
             {
                 "name": "Reporter",
-                "description": "STEP 4 (STRICTLY FINAL STEP - NEVER CALL FIRST): Compiles final brief. CANNOT be called until Researcher finishes.",
+                "description": "STEP 4 (STRICTLY FINAL STEP): Compiles final brief directly as Markdown text without calling any VFS file tools.",
                 "system_prompt": (
-                    "Compile an exhaustive, highly detailed, production-grade intelligence report (minimum 1,500 words) using the research findings provided in your task description. "
-                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, concrete architecture explanations, and verified benchmarks. "
-                    "Structure between 9-15 clear sections: "
-                    "1. Executive Summary & Core Insights, "
-                    "2. Deep Technical System Architecture & Workflows, "
-                    "3. Production Code Patterns & GitHub Repositories (with links), "
-                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
-                    "5. Risk, Bottlenecks & Production Trade-offs, "
-                    "6. Verified Source Citation Index. "
-                    "NEVER use dummy placeholder text like 'content goes here'. Write complete, thorough, comprehensive paragraphs for every section. "
-                    "Call save_intelligence_report ONCE passing the complete 6-section report string as report_content. "
-                    "CRITICAL: Once save_intelligence_report finishes, output 'REPORT_SAVED_SUCCESSFULLY' and stop execution immediately."
+                    "You are the Lead Intelligence Reporter. You MUST NOT call 'write_file', 'read_file', 'list_dir', 'save_intelligence_report', or any function tools. "
+                    "Do NOT output XML function calls (<function=...>). "
+                    "Your ONLY task is to write out the full, exhaustive 6-section research report (minimum 1,500 words) directly as clean Markdown text in your final response:\n\n"
+                    "1. Executive Summary & Core Insights\n"
+                    "2. Deep Technical System Architecture & Workflows\n"
+                    "3. Production Code Patterns & GitHub Repositories (with links)\n"
+                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links)\n"
+                    "5. Risk, Bottlenecks & Production Trade-offs\n"
+                    "6. Verified Source Citation Index\n\n"
+                    "Write complete, multi-paragraph text for every single section."
                 ),
-                "tools": REPORTER_TOOLS,
+                "tools": [],
+                "middleware": [],
             },
         ],
     )
     return agent
 
 
+from src.core.guardrails_wrapper import NeMoGuardrailsService
+import asyncio
+
+guardrails_service = NeMoGuardrailsService(config_dir="config")
+
+
 def run_pipeline(raw_query: str) -> str:
     clean_query = re.sub(r'\s+', ' ', raw_query).strip()
     if not clean_query:
         return "Error: Empty query provided."
+
+    # Pre-flight NeMo Guardrails check (Jailbreak, Off-topic, PII redaction)
+    input_check = asyncio.run(guardrails_service.check_input_rails(clean_query))
+
+    if input_check.status == "blocked_input":
+        print("\n" + "=" * 60)
+        print("         [SECURITY GUARDRAIL TRIGGERED - REQUEST BLOCKED]")
+        print("=" * 60)
+        print(f"Reason   : {input_check.blocked_reason}")
+        print(f"Response : {input_check.response}\n")
+        return input_check.response
+
+    # Use sanitized query if PII was redacted
+    clean_query = input_check.sanitized_prompt
 
     stats = cache_manager.get_stats()
     print("=" * 60)
@@ -346,12 +368,38 @@ def run_pipeline(raw_query: str) -> str:
     last_error = None
 
     token_logger = TokenLoggerCallback()
+    callbacks_list = [token_logger]
+    langfuse_handler = None
+
+    try:
+        pub_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+        sec_key = os.getenv("LANGFUSE_SECRET_KEY")
+        host_url = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL") or "https://cloud.langfuse.com"
+
+        if pub_key and sec_key:
+            try:
+                from langfuse.langchain import CallbackHandler
+                langfuse_handler = CallbackHandler()
+            except (ImportError, TypeError):
+                from langfuse.callback import CallbackHandler
+                langfuse_handler = CallbackHandler(
+                    public_key=pub_key,
+                    secret_key=sec_key,
+                    host=host_url,
+                )
+            callbacks_list.append(langfuse_handler)
+            print(f"[Langfuse Observability] Tracing Active -> Host: {host_url}")
+    except Exception as e:
+        print(f"[Langfuse Warning] Failed to initialize tracing: {e}")
+
+
     for attempt in range(1, max_attempts + 1):
         try:
             response = agent.invoke(
                 {"messages": [{"role": "user", "content": clean_query}]},
-                config={"recursion_limit": 50, "callbacks": [token_logger]},
+                config={"recursion_limit": 50, "callbacks": callbacks_list},
             )
+
         except Exception as e:
             last_error = e
             if "tool_use_failed" in str(e) and attempt < max_attempts:
@@ -382,14 +430,55 @@ def run_pipeline(raw_query: str) -> str:
     if final_output is None:
         return f"Error: Pipeline execution failed after {max_attempts} attempts -- {last_error}"
 
+    # Post-flight NeMo Guardrails check (Toxicity, PII masking)
+    output_check = asyncio.run(guardrails_service.check_output_rails(output=final_output))
+    if output_check.status == "blocked_output":
+        print("\n" + "=" * 60)
+        print("         [OUTPUT GUARDRAIL TRIGGERED - RESPONSE BLOCKED]")
+        print("=" * 60)
+        print(f"Reason   : {output_check.blocked_reason}")
+        print(f"Response : {output_check.response}\n")
+        return output_check.response
+
+    final_output = output_check.response
+
+    # Ensure full report is saved ONCE to ./reports and ./workspace/reports
+    reports_dir = os.path.abspath("./reports")
+    ws_reports_dir = os.path.abspath("./workspace/reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    os.makedirs(ws_reports_dir, exist_ok=True)
+
+    slug = re.sub(r'[^a-zA-Z0-9]+', '_', clean_query.strip().lower()).strip('_')[:30]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"report_{slug}_{timestamp}.md"
+
+    filepath = os.path.join(reports_dir, filename)
+    ws_filepath = os.path.join(ws_reports_dir, filename)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(final_output)
+    with open(ws_filepath, "w", encoding="utf-8") as f:
+        f.write(final_output)
+    with open(latest_file, "w", encoding="utf-8") as f:
+        f.write(final_output)
+
     print("\n" + "=" * 60)
     print("                FINAL INTELLIGENCE REPORT                ")
     print("=" * 60 + "\n")
     print(final_output)
     print("\n" + "=" * 60)
-    print(f"Latest Report : {latest_file}\n")
+    print(f"Saved Report Location : {filepath}\n")
+
+    # Flush async traces to Langfuse before script completion
+    if langfuse_handler:
+        try:
+            langfuse_handler.flush()
+        except Exception:
+            pass
 
     return final_output
+
+
 
 
 if __name__ == "__main__":

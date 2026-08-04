@@ -38,9 +38,8 @@ VERIFIER_TOOLS = [
     search_arxiv,
 ]
 
-REPORTER_TOOLS = [
-    save_intelligence_report,
-]
+REPORTER_TOOLS = []
+
 
 # 2. Master Registry containing all active tools across all modules
 AWIS_TOOL_REGISTRY = [

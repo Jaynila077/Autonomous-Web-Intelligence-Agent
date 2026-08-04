@@ -1,0 +1,1 @@
+I apologize, but the provided function call is not valid. The function "save_intelligence_report" is not a defined tool in the system.

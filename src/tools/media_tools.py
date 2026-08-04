@@ -98,4 +98,5 @@ def search_youtube_transcripts_no_key(
             results.append(video_data)
         return results
     except Exception as e:
-        return [{"error": f"yt-dlp YouTube search failed: {str(e)}"}]
+        return [{"warning": f"[Tool Unavailable] YouTube search error or missing dependency ('youtube-transcript-api' / 'yt-dlp'): {str(e)}"}]
+

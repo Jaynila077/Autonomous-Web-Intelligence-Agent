@@ -55,12 +55,16 @@ def fetch_wiki_data(query: str, lang: str = "en") -> str:
 
 @cache_result(expire=86400, prefix="tavily")
 def _fetch_tavily(query: str, max_results: int = 3) -> Dict[str, Any]:
-    api_key = os.environ.get("TAVILY_API_KEY")
-    if not api_key:
-        return {"error": "TAVILY_API_KEY environment variable is not set."}
-
     try:
         from tavily import TavilyClient
+    except ImportError:
+        return {"warning": "[Tool Unavailable] 'tavily-python' library is not installed. Run `pip install tavily-python`."}
+
+    api_key = os.environ.get("TAVILY_API_KEY")
+    if not api_key:
+        return {"warning": "[Tool Unavailable] TAVILY_API_KEY environment variable is not set."}
+
+    try:
         client = TavilyClient(api_key=api_key)
         response = client.search(
             query=query,
@@ -108,6 +112,10 @@ def search_web_news(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
     """
     try:
         from duckduckgo_search import DDGS
+    except ImportError:
+        return [{"warning": "[Tool Unavailable] 'duckduckgo-search' library is not installed. Run `pip install duckduckgo-search`."}]
+
+    try:
         with DDGS() as ddgs:
             raw_results = list(ddgs.text(query, max_results=max_results))
         if not raw_results:
@@ -131,13 +139,19 @@ def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[st
     """
     Runs a neural/semantic web search via Exa API and returns extracted highlights.
     """
+    try:
+        from exa_py import Exa
+    except ImportError:
+        return [{"warning": "[Tool Unavailable] 'exa-py' library is not installed. Run `pip install exa-py`."}]
+
     api_key = os.environ.get("EXA_API_KEY")
     if not api_key:
-        return [{"error": "EXA_API_KEY environment variable is not set."}]
+        return [{"warning": "[Tool Unavailable] EXA_API_KEY environment variable is not set."}]
 
     try:
         from exa_py import Exa
         exa = Exa(api_key=api_key)
+
         response = exa.search(
             semantic_query,
             type="auto",

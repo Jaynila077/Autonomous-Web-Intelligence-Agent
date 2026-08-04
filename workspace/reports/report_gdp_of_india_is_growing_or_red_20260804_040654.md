@@ -1,0 +1,1 @@
+The current GDP of India is $2.76 trillion, with a growth rate of 7.2% in 2022. The data is credible, sourced from the World Bank and the International Monetary Fund.
