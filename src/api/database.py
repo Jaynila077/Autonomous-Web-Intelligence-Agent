@@ -6,6 +6,10 @@ from enum import Enum
 from typing import Optional, Generator, List
 from sqlmodel import SQLModel, Field, Relationship, create_engine, Session
 from sqlalchemy import Column, Enum as SAEnum
+from src.api.schemas import JobStatus
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
@@ -58,9 +62,9 @@ class Job(SQLModel, table=True):
 
     job_id: str = Field(primary_key=True, index=True)
     user_id: str = Field(foreign_key="users.id", index=True, nullable=False)
-    status: str = Field(
-        default="QUEUED",
-        sa_column=Column(SAEnum(Enum("JobStatus", ["QUEUED", "PLANNING", "RESEARCHING", "VERIFYING", "REPORTING", "COMPLETED", "FAILED"])), nullable=False)
+    status: JobStatus = Field(
+        default=JobStatus.QUEUED,
+        sa_column=Column(SAEnum(JobStatus), nullable=False)
     )
     current_agent: Optional[str] = Field(default=None)
     report_path: Optional[str] = Field(default=None)
