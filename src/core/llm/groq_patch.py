@@ -1,10 +1,14 @@
 import re
 import json
 import time
+import uuid
+import logging
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import trim_messages, AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+
+logger = logging.getLogger(__name__)
 
 # 1. Message Trimmer for context token capping (~4 chars per token)
 message_trimmer = trim_messages(
@@ -45,7 +49,8 @@ class ToolParsingChatGroq(ChatGroq):
                         raw_json = json_match.group(1).split("</function>")[0].strip()
                         try:
                             args = json.loads(raw_json)
-                        except Exception:
+                        except Exception as parse_e:
+                            logger.warning(f"[GroqPatch] Failed to parse tool args JSON: {parse_e} — defaulting to empty args")
                             args = {}
 
                     ai_msg = AIMessage(
@@ -53,7 +58,7 @@ class ToolParsingChatGroq(ChatGroq):
                         tool_calls=[{
                             "name": tool_name,
                             "args": args,
-                            "id": f"call_{int(time.time()*1000)}",
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
                             "type": "tool_call"
                         }]
                     )
@@ -76,12 +81,14 @@ class ToolParsingChatGroq(ChatGroq):
                                 raw_json = json_match.group(1).split("</function>")[0].strip()
                                 try:
                                     args = json.loads(raw_json)
-                                except Exception:
+                                except Exception as parse_e:
+                                    logger.warning(f"[GroqPatch] Failed to parse tool args JSON: {parse_e} — defaulting to empty args")
                                     args = {}
+
                             msg.tool_calls = [{
                                 "name": tool_name,
                                 "args": args,
-                                "id": f"call_{int(time.time()*1000)}",
+                                "id": f"call_{uuid.uuid4().hex[:8]}",
                                 "type": "tool_call"
                             }]
                             msg.content = ""
