@@ -146,20 +146,20 @@ def run_pipeline(raw_query: str) -> str:
     final_output = output_check.response
 
     # 4. Report Saving to three explicit locations
-    reports_dir = os.path.abspath("./reports")
+    # reports_dir = os.path.abspath("./reports")
     ws_reports_dir = os.path.abspath("./workspace/reports")
-    os.makedirs(reports_dir, exist_ok=True)
+    # os.makedirs(reports_dir, exist_ok=True)
     os.makedirs(ws_reports_dir, exist_ok=True)
 
     slug = re.sub(r'[^a-zA-Z0-9]+', '_', clean_query.strip().lower()).strip('_')[:30]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"report_{slug}_{timestamp}.md"
 
-    filepath = os.path.join(reports_dir, filename)
+    # filepath = os.path.join(reports_dir, filename)
     ws_filepath = os.path.join(ws_reports_dir, filename)
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(final_output)
+    # with open(filepath, "w", encoding="utf-8") as f:
+    #     f.write(final_output)
     with open(ws_filepath, "w", encoding="utf-8") as f:
         f.write(final_output)
     with open(latest_file, "w", encoding="utf-8") as f:
@@ -171,7 +171,7 @@ def run_pipeline(raw_query: str) -> str:
     print(final_output)
     print("\n" + "=" * 60)
     print(f"Latest Report : {latest_file}")
-    print(f"Saved Report  : {filepath}\n")
+    print(f"Saved Report  : {ws_filepath}\n")
 
     # Flush async traces to Langfuse before returning
     if langfuse_handler:
