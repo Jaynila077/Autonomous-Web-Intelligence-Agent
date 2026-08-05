@@ -675,7 +675,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
 
     llm = build_production_llm(token_logger)
     backend = FilesystemBackend(root_dir=vfs_path, virtual_mode=True)
-    dynamic_research_tools = select_dynamic_tools(query, max_tools=2)
+    dynamic_research_tools = select_dynamic_tools(query, max_tools=4)
 
     # Hard cap on Researcher's domain tool calls. This is enforced in code, not
     # just via the system prompt below -- the model can (and on weaker fallback
@@ -716,6 +716,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
             "Before each stage: call ls('/raw/') ONCE.\n"
             "- Stage's output file already listed -> stage is done, move to next stage.\n"
             "- Not listed -> delegate now.\n"
+            "Delelegate to Reporter after both raw/research.md and raw/verified.md exist.\n"
             "Do not call ls('/raw/') twice for the same stage decision.\n\n"
             "RULE 2 -- Never write the raw files yourself.\n"
             "Never write_file or edit_file on raw/plan.md, raw/research.md, or "
@@ -772,6 +773,7 @@ def build_awis_agent(query: str = "Agentic AI Architectures", token_logger: "Tok
                     "found and a brief conclusion based on your findings.\n\n"
                     "If write_file says raw/research.md already exists: stop. Do not "
                     "retry, do not edit."
+                    "Return research.md made as your final message."
 
                 ),
                 "tools": limited_research_tools,
