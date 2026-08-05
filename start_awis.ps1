@@ -62,7 +62,7 @@ Start-Sleep -Seconds 2
 
 # --- 3. Streamlit frontend ---
 Write-Host "Starting Streamlit frontend..." -ForegroundColor Cyan
-Start-NamedWindow -Title "AWIS - Streamlit" -Command "streamlit run src/ui/app.py"
+Start-NamedWindow -Title "AWIS - Streamlit" -Command "streamlit run app.py"
 
 Write-Host "`n=== All processes launched in separate windows ===" -ForegroundColor Green
 Write-Host "  - AWIS - FastAPI      -> http://localhost:8000"
