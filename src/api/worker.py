@@ -1,19 +1,49 @@
 # src/api/worker.py
 import os
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import Session
 
-from src.core.main import build_awis_agent
 from src.api.schemas import JobStatus
 from src.api.database import engine, Job, Message
 
 
 def _sync_pipeline_runner(user_id: str, job_id: str, query: str) -> str:
-    agent, vfs_path = build_awis_agent(user_id=user_id, job_id=job_id)
-    agent.invoke({"messages": [{"role": "user", "content": query}]})
-    return os.path.join(vfs_path, "final_report.md")
+    """
+    Synchronous wrapper executed inside a background thread (via asyncio.to_thread).
+    Branches between the mock agent (fast, no API keys needed) and the real
+    AWIS pipeline (src.core.pipeline.runner.run_pipeline) based on MOCK_AGENT.
+    """
+    mock_agent = os.getenv("MOCK_AGENT", "false").lower() in ("true", "1")
+
+    if mock_agent:
+        # Fast local mock path — no LLM calls, no guardrails, just enough to
+        # exercise the full API/DB/queue lifecycle in tests.
+        time.sleep(2)  # simulate work so status transitions are observable
+        report_text = (
+            f"# Mock Intelligence Brief (Local Echo)\n\n"
+            f"**Query:** {query}\n\n"
+            f"This report was generated locally without an external LLM API key."
+        )
+    else:
+        # Real production pipeline — job-scoped workspace, guardrails, retries,
+        # and Langfuse tracing all happen inside run_pipeline itself.
+        from src.core.pipeline.runner import run_pipeline
+        report_text = run_pipeline(query, user_id=user_id, job_id=job_id)
+
+    # Write the report to disk at a job-scoped path, exactly like the real
+    # pipeline's workspace convention (workspace/users/{user_id}/jobs/{job_id}/),
+    # so GET /report can continue serving a real downloadable .md file via
+    # FileResponse, regardless of whether the mock or real path ran.
+    vfs_path = os.path.abspath(f"./workspace/users/{user_id}/jobs/{job_id}")
+    os.makedirs(vfs_path, exist_ok=True)
+    report_path = os.path.join(vfs_path, "final_report.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report_text)
+
+    return report_text, report_path
 
 
 async def execute_agent_pipeline(ctx: dict, job_id: str, user_id: str, query: str, message_id: Optional[str] = None):
@@ -30,16 +60,13 @@ async def execute_agent_pipeline(ctx: dict, job_id: str, user_id: str, query: st
             db.commit()
 
     try:
-        # 2. Run agent pipeline on background thread
-        report_path = await asyncio.to_thread(_sync_pipeline_runner, user_id, job_id, query)
+        # 2. Run agent pipeline (mock or real) on a background thread
+        report_text, report_path = await asyncio.to_thread(_sync_pipeline_runner, user_id, job_id, query)
 
-        if not os.path.exists(report_path):
-            raise FileNotFoundError(f"Expected report at {report_path}, but file was not created.")
+        if not report_text or not report_text.strip():
+            raise ValueError("Pipeline returned an empty report.")
 
-        with open(report_path, "r", encoding="utf-8") as f:
-            report_text = f.read()
-
-        # 3. DB -> COMPLETED & Populate Message Content
+        # 3. DB -> COMPLETED & Populate Message Content + Job.report_path
         with Session(engine) as db:
             job = db.get(Job, job_id)
             if job:
