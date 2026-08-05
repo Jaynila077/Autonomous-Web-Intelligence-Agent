@@ -1,0 +1,22 @@
+models:
+  - type: main
+    engine: openai
+    model: llama-3.1-8b-instant
+    parameters:
+      base_url: "https://api.groq.com/openai/v1"
+
+rails:
+  input:
+    flows:
+      - self check input
+      - check off topic
+      - mask pii input
+  output:
+    flows:
+      - self check output
+      - self check hallucination
+      - mask pii output
+
+sample_conversation: |
+  user "Hello, can you help me research web intelligence?"
+    bot "Hello! I am an AI assistant specialized in web intelligence, research, and analysis. How can I assist you today?"

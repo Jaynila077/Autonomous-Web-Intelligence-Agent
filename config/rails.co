@@ -1,0 +1,55 @@
+# Colang 1.0 Security Rails Definition for Autonomous-Web-Intelligence-Agent
+
+define bot refuse jailbreak
+  "Cannot process your request I am Awis agent for providing you web search services. If you have query related this you can continue."
+
+define bot refuse off topic
+  "I am an Autonomous Web Intelligence agent. I can only assist with web research, data analysis, intelligence gathering, and technical tasks."
+
+define bot refuse toxic
+  "I apologize, but the generated output was flagged by safety moderation guardrails (Toxic or Unsafe Content)."
+
+define bot refuse hallucination
+  "I apologize, but the response could not be verified against grounded reference context (Fact-checking / Hallucination detected)."
+
+# ==============================================================================
+# INPUT RAILS
+# ==============================================================================
+
+define subflow self check input
+  $is_jailbreak = execute detect_jailbreak_action(user_input=$user_input)
+  if $is_jailbreak
+    bot refuse jailbreak
+    stop
+
+define subflow check off topic
+  $is_off_topic = execute check_off_topic_action(user_input=$user_input)
+  if $is_off_topic
+    bot refuse off topic
+    stop
+
+define subflow mask pii input
+  $sanitized_text = execute mask_pii_action(text=$user_input)
+  $user_input = $sanitized_text
+
+# ==============================================================================
+# OUTPUT RAILS
+# ==============================================================================
+
+define subflow self check output
+  $is_toxic = execute check_toxicity_action(bot_response=$bot_response)
+  if $is_toxic
+    bot refuse toxic
+    stop
+
+define subflow self check hallucination
+  if $context
+    $is_hallucinated = execute check_hallucination_action(bot_response=$bot_response, context=$context)
+    if $is_hallucinated
+      bot refuse hallucination
+      stop
+
+define subflow mask pii output
+  $sanitized_response = execute mask_pii_action(text=$bot_response)
+  $bot_response = $sanitized_response
+
