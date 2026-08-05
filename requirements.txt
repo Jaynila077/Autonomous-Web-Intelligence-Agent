@@ -34,3 +34,19 @@ arq>=0.25.0
 
 psycopg[binary]>=3.1.0
 alembic>=1.12.0
+
+resend 
+markdown 
+xhtml2pdf
+pytest
+
+nest_asyncio
+
+# Caching & VFS
+diskcache>=5.6.0
+
+# Security & Guardrails
+nemoguardrails>=0.11.0
+
+# Observability & Tracing
+langfuse>=2.0.0
