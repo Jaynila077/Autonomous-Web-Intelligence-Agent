@@ -32,6 +32,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "active_job_id" not in st.session_state:
     st.session_state.active_job_id = None
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = None
 
 # ============================================================================
 # CUSTOM CSS LAYER (CYBER / TERMINAL AESTHETIC)
@@ -255,17 +257,52 @@ def check_backend_health():
         return False
 
 
-def get_fake_chat_history():
-    """
-    ISOLATED STUB FUNCTION: Temporary mock list for sidebar history.
-    Isolate behind this single function so swapping with a real GET /api/v1/queries/
-    endpoint later requires modifying only this block.
-    """
-    return [
-        {"job_id": "job_01", "title": "[OSINT] Vector DB Scaling Bottlenecks", "timestamp": "14:20 IST"},
-        {"job_id": "job_02", "title": "[AUDIT] Model Context Protocol Security", "timestamp": "11:05 IST"},
-        {"job_id": "job_03", "title": "[SCOUT] Web Scraper Anti-Bot Countermeasures", "timestamp": "YESTERDAY"},
-    ]
+def fetch_conversations():
+    """Fetches the list of active conversations for the current user."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/api/v1/conversations/",
+            headers=get_auth_headers(),
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 401:
+            st.session_state.token = None
+            st.rerun()
+        else:
+            st.sidebar.error("Failed to load conversation history.")
+            return []
+    except requests.RequestException as e:
+        st.sidebar.error(f"Network error loading chats: {str(e)}")
+        return []
+
+
+def fetch_conversation_messages(conversation_id: str):
+    """Loads all messages for a specific conversation thread into session state."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/api/v1/conversations/{conversation_id}/messages",
+            headers=get_auth_headers(),
+            timeout=10,
+        )
+        if response.status_code == 200:
+            raw_messages = response.json()
+            # Map backend messages into Streamlit chat state format
+            formatted_messages = []
+            for msg in raw_messages:
+                formatted_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"] or "*(Report generating...)*",
+                    "is_error": False,
+                })
+            st.session_state.messages = formatted_messages
+            st.session_state.conversation_id = conversation_id
+            st.rerun()
+        else:
+            st.error("Could not retrieve conversation messages.")
+    except requests.RequestException as e:
+        st.error(f"Network error: {str(e)}")
 
 # ============================================================================
 # COMPONENT: LOGIN / REGISTER SCREEN
@@ -375,18 +412,39 @@ def render_sidebar():
         st.divider()
 
         # "+ New Chat" Action
-        if st.button("[+] NEW INTEL SESSION", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.active_job_id = None
-            st.rerun()
+        if st.sidebar.button("➕ New Chat", use_container_width=True):
+           st.session_state.messages = []
+           st.session_state.active_job_id = None
+           st.session_state.conversation_id = None  # Reset conversation ID
+           st.rerun()
 
         st.markdown("<p style='color: #00ff9d; font-size: 0.8rem; margin-top: 20px;'>HISTORICAL INTEL LOGS</p>", unsafe_allow_html=True)
-        st.caption("Temporary Mock History // Pending Backend GET /queries/ Endpoint")
 
-        # Isolated Mock Chat History Rendering
-        for chat in get_fake_chat_history():
-            if st.button(f"📄 {chat['title']}", key=f"sidebar_{chat['job_id']}", use_container_width=True):
-                st.info("Historical query loading will activate when GET /api/v1/queries/ lands.")
+        # Real Conversation List from Backend
+        from datetime import datetime
+        conversations = fetch_conversations()
+
+        if conversations:
+            for conv in conversations:
+                conv_id = conv["id"]
+                title = conv.get("title") or "New Chat"
+
+                raw_updated = conv.get("updated_at", "")
+                formatted_time = ""
+                if raw_updated:
+                    try:
+                        dt = datetime.fromisoformat(raw_updated.replace("Z", "+00:00"))
+                        formatted_time = dt.strftime("%b %d, %H:%M")
+                    except ValueError:
+                        formatted_time = raw_updated[:10]
+
+                is_active = conv_id == st.session_state.conversation_id
+                button_label = f"{'🟢 ' if is_active else '💬 '}{title} ({formatted_time})"
+
+                if st.sidebar.button(button_label, key=f"conv_{conv_id}", use_container_width=True):
+                    fetch_conversation_messages(conv_id)
+        else:
+            st.sidebar.caption("No recent conversations.")
 
         st.divider()
 
@@ -576,7 +634,11 @@ def render_chat_interface():
         try:
             resp = requests.post(
                 f"{API_BASE_URL}/api/v1/queries/",
-                json={"query": clean_query, "max_retries": 2},
+                json={
+                    "query": clean_query,
+                    "conversation_id": st.session_state.conversation_id,
+                    "max_retries": 2,
+                },
                 headers=get_auth_headers(),
                 timeout=5,
             )
@@ -586,6 +648,10 @@ def render_chat_interface():
                 job_id = job_data["job_id"]
                 status_stream_url = job_data["status_stream_url"]
                 report_download_url = job_data["report_download_url"]
+
+                # Capture conversation_id returned by backend (new thread or existing)
+                st.session_state.conversation_id = job_data.get("conversation_id", st.session_state.conversation_id)
+                st.session_state.active_job_id = job_id
 
                 # Poll status & retrieve report
                 result = poll_job_status_and_fetch_report(job_id, status_stream_url, report_download_url)
