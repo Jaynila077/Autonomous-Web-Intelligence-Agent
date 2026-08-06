@@ -2,9 +2,7 @@
 import os
 import time
 import json
-import datetime
 import requests
-import markdown
 import streamlit as st
 from streamlit_cookies_manager import EncryptedCookieManager
 
@@ -25,34 +23,43 @@ st.set_page_config(
 # COOKIE MANAGER INITIALIZATION & PERSISTENT SESSION RESTORATION
 # ============================================================================
 
-# Initialize cookie manager (uses a secure password key stored in env or dev fallback)
+# Initialize cookie manager
 cookies = EncryptedCookieManager(
     prefix="awis_app_",
     password=os.getenv("COOKIE_PASSWORD", "awis-secret-cookie-key-32bytes-min!"),
 )
 
 if not cookies.ready():
-    # Wait for browser cookie synchronization to complete before rendering
+    # Wait for browser cookie synchronization to complete before rendering UI
     st.stop()
 
 # Helper routines for setting/clearing cookie state
 def set_auth_cookies(token: str, user_id: str, email: str):
-    expires_at = datetime.datetime.now() + datetime.timedelta(days=7)
     cookies["token"] = token
     cookies["user_id"] = user_id
     cookies["email"] = email
     cookies.save()
 
 def clear_auth_cookies():
-    for key in ["token", "user_id", "email"]:
-        if key in cookies:
-            del cookies[key]
+    # Overwrite with empty string to circumvent deletion issue in streamlit-cookies-manager
+    cookies["token"] = ""
+    cookies["user_id"] = ""
+    cookies["email"] = ""
     cookies.save()
+
+def toggle_theme():
+    """Toggle theme in session state and persist to browser cookie."""
+    new_theme = "dark" if st.session_state.theme == "light" else "light"
+    st.session_state.theme = new_theme
+    cookies["theme"] = new_theme
+    cookies.save()
+    st.rerun()
 
 # Restore session state from cookies on initial load/refresh if available
 cookie_token = cookies.get("token")
 cookie_user_id = cookies.get("user_id")
 cookie_email = cookies.get("email")
+cookie_theme = cookies.get("theme")
 
 # ============================================================================
 # SESSION STATE INITIALIZATION
@@ -71,7 +78,8 @@ if "active_job_id" not in st.session_state:
 if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
 if "theme" not in st.session_state:
-    st.session_state.theme = "light"  # Default theme
+    # Use stored cookie theme if valid, otherwise fallback to "light"
+    st.session_state.theme = cookie_theme if cookie_theme in ["light", "dark"] else "light"
 
 # ============================================================================
 # THEME / CSS INJECTION
@@ -205,12 +213,11 @@ def fetch_conversation_messages(conversation_id: str):
         )
         if response.status_code == 200:
             raw_messages = response.json()
-            # Map backend messages into Streamlit chat state format
             formatted_messages = []
             for msg in raw_messages:
                 formatted_messages.append({
                     "role": msg["role"],
-                    "content": markdown.markdown(msg["content"] or "*(Report generating...)*"),
+                    "content": msg["content"] or "*(Report generating...)*",
                     "is_error": False,
                 })
             st.session_state.messages = formatted_messages
@@ -235,8 +242,7 @@ def render_login_screen():
     with col_theme:
         theme_label = "🌙 Dark Theme" if st.session_state.theme == "light" else "☀ Light Theme"
         if st.button(theme_label, use_container_width=True):
-            st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
-            st.rerun()
+            toggle_theme()
 
     st.divider()
 
@@ -338,6 +344,7 @@ def render_sidebar():
     with st.sidebar:
         # App name
         st.markdown("<div style='font-weight: 600; font-size: 1.125rem; margin-bottom: 24px; color: var(--text-main);'>AWIS ResearchAssist</div>", unsafe_allow_html=True)
+        
         # New Query button
         if st.button("+ New Query", use_container_width=True):
             st.session_state.messages = []
@@ -353,10 +360,7 @@ def render_sidebar():
             conv_id = conv.get('id')
             label = conv.get('label') or conv.get('title') or conv.get('name') or conv.get('query') or conv.get('first_query') or conv.get('summary') or f"Conversation {conv.get('id', '')[:8]}"
             
-            # Truncate label
             truncated_label = label[:30] + '...' if len(label) > 30 else label
-            
-            # Check active state
             is_active = (st.session_state.get('conversation_id') == conv_id)
             
             button_type = "primary" if is_active else "secondary"
@@ -376,7 +380,6 @@ def render_sidebar():
                     unsafe_allow_html=True
                 )
 
-            # Clickable history button
             if st.button(truncated_label, key=f"hist_{conv_id}", type=button_type, use_container_width=True):
                 st.session_state.conversation_id = conv_id
                 fetch_conversation_messages(conv_id)
@@ -387,8 +390,7 @@ def render_sidebar():
         # Theme Toggle
         theme_label = "🌙 Dark Theme" if st.session_state.theme == "light" else "☀ Light Theme"
         if st.button(theme_label, use_container_width=True):
-            st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
-            st.rerun()
+            toggle_theme()
 
         # System Connected Status
         st.markdown(
@@ -418,7 +420,7 @@ def render_sidebar():
 
 def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report_download_url: str) -> dict:
     """
-    Executes in-place status polling using st.empty() placeholders.
+    Executes in-place terminal status polling using st.empty() placeholders.
     Updates stage metrics in real time without causing Streamlit reruns.
     """
     status_placeholder = st.empty()
@@ -443,7 +445,6 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
                             current_status = data.get("status", "UNKNOWN")
                             current_agent = data.get("current_agent", "Initializing")
 
-                            # Render in-place status card
                             status_placeholder.markdown(
                                 f"""
                                 <div class="report-card">
@@ -488,7 +489,6 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
     if not final_result["success"]:
         return final_result
 
-    # Fetch final markdown report from API
     try:
         report_resp = requests.get(
             f"{API_BASE_URL}{report_download_url}",
@@ -513,13 +513,11 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
 def render_chat_interface():
     render_sidebar()
 
-    # Minimal Header
     st.markdown("<h1 style='font-size: 1.5rem; font-weight: 600; margin-bottom: 40px; color: var(--text-main);'>Query Results</h1>", unsafe_allow_html=True)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Render Existing Thread Messages (Latest Only)
     if not st.session_state.messages:
         st.markdown(
             "<p style='color: var(--text-muted); margin-bottom: 48px;'>Submit a query to generate a report.</p>",
@@ -547,15 +545,8 @@ def render_chat_interface():
 
         if last_assistant_msg:
             error_header = "<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>" if last_assistant_msg.get("is_error", False) else ""
-            
-            # Convert raw markdown to HTML using the markdown library
-            raw_content = last_assistant_msg.get("content", "")
-            html_content = markdown.markdown(raw_content, extensions=['extra', 'sane_lists'])
-            
-            # Embed the generated HTML inside the styled div
-            st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{html_content}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{last_assistant_msg["content"]}</div>', unsafe_allow_html=True)
 
-    # Query Input Form
     def handle_submit():
         if st.session_state.query_widget and st.session_state.query_widget.strip():
             st.session_state.pending_query = st.session_state.query_widget
@@ -582,7 +573,6 @@ def render_chat_interface():
     if is_processing:
         st.markdown("<div style='font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;'>Generating report...</div>", unsafe_allow_html=True)
 
-    # Core API Execution Logic
     if st.session_state.get("pending_query"):
         query_text = st.session_state.pending_query
         st.session_state.pending_query = ""
