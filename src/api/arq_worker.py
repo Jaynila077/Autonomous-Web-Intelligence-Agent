@@ -19,4 +19,4 @@ class WorkerSettings:
     functions = [execute_agent_pipeline]
     redis_settings = RedisSettings.from_dsn(UPSTASH_REDIS_URL)
     max_jobs = 10
-    job_timeout = 600  # 10 minutes max per OSINT research job
+    job_timeout = 1200  # 20 minutes max per OSINT research job

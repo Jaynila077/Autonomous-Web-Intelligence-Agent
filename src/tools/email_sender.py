@@ -2,6 +2,8 @@ import os
 import base64
 import resend
 
+import html
+
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
@@ -34,7 +36,7 @@ def send_report_email(to_email: str, subject: str, pdf_path: str, query: str) ->
 
         html_content = (
             f"<p>Hello,</p>"
-            f"<p>Your report for the query: <strong>{query}</strong> is ready.</p>"
+            f"<p>Your report for the query: <strong>{html.escape(query)}</strong> is ready.</p>"
             f"<p>Please find the full research report attached as a PDF.</p>"
         )
 
