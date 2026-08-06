@@ -91,29 +91,37 @@ async def execute_agent_pipeline(ctx: dict, job_id: str, user_id: str, query: st
 
             db.commit()
 
-        # 4. Exporting to PDF
-        try:
-            with Session(engine) as db:
-                user = db.get(User, user_id)
-                if not user or not user.email:
-                    print(f"Skipping PDF export and email: No valid email found for user_id {user_id}.")
-                else:
-                    if report_path.endswith(".md"):
-                        pdf_path = report_path[:-3] + ".pdf"
-                    else:
-                        pdf_path = report_path + ".pdf"
-                        
-                    final_pdf_path = export_report_to_pdf(report_text, pdf_path)
-                    
+        # 4. Exporting to PDF and Sending Email
+        with Session(engine) as db:
+            user = db.get(User, user_id)
+
+        if not user or not user.email:
+            print(f"Skipping PDF export and email: No valid email found for user_id {user_id}.")
+        else:
+            if report_path.endswith(".md"):
+                pdf_path = report_path[:-3] + ".pdf"
+            else:
+                pdf_path = report_path + ".pdf"
+
+            final_pdf_path = None
+
+            try:
+                final_pdf_path = export_report_to_pdf(report_text, pdf_path)
+                print(f"Successfully generated PDF at: {final_pdf_path}")
+            except Exception as pdf_exc:
+                print(f"Non-fatal error during PDF generation: {pdf_exc}")
+
+            if final_pdf_path:
+                try:
                     send_report_email(
                         to_email=user.email,
                         subject=f"Your AWIS Report: {query[:60]}",
                         pdf_path=final_pdf_path,
                         query=query
                     )
-                    print(f"Successfully generated PDF and sent email to {user.email}")
-        except Exception as pdf_email_exc:
-            print(f"Non-fatal error during PDF generation or email sending: {pdf_email_exc}")
+                    print(f"Successfully sent email to {user.email}")
+                except Exception as email_exc:
+                    print(f"Non-fatal error during email sending: {email_exc}")
 
     except Exception as exc:
         with Session(engine) as db:
