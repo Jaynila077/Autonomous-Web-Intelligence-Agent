@@ -154,6 +154,64 @@ def get_theme_css():
         .report-card .muted {{
             color: var(--text-muted);
         }}
+
+        /* Input Labels */
+        .stTextInput label, .stTextInput label p {{
+            color: var(--text-main) !important;
+        }}
+
+        /* Tabs (Text and Underline) */
+        [data-testid="stTabs"] button {{
+            color: var(--text-muted) !important;
+        }}
+        [data-testid="stTabs"] button p {{
+            color: inherit !important;
+        }}
+        [data-testid="stTabs"] button[aria-selected="true"] {{
+            color: var(--text-main) !important;
+            border-bottom-color: var(--accent-color) !important;
+        }}
+
+        /* Form Submit Button */
+        [data-testid="stFormSubmitButton"] > button {{
+            background-color: var(--card-bg) !important;
+            color: var(--text-main) !important;
+            border: 1px solid var(--border-color) !important;
+        }}
+        [data-testid="stFormSubmitButton"] > button p, 
+        [data-testid="stFormSubmitButton"] > button div {{
+            color: var(--text-main) !important;
+        }}
+        [data-testid="stFormSubmitButton"] > button:hover {{
+            border-color: var(--accent-color) !important;
+        }}
+
+        /* Streamlit Alerts (st.error, st.success, st.warning, st.info) */
+        [data-testid="stAlert"] {{
+            background-color: var(--card-bg) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--text-main) !important;
+        }}
+        [data-testid="stAlert"] p, 
+        [data-testid="stAlert"] span {{
+            color: var(--text-main) !important;
+        }}
+
+        /* Streamlit Chrome (Header, Menu, Footer, Toolbar) */
+        header[data-testid="stHeader"], 
+        #MainMenu, 
+        footer, 
+        [data-testid="stToolbar"] {{
+            background-color: var(--bg-color) !important;
+            color: var(--text-main) !important;
+        }}
+        
+        /* Ensure Chrome icons are visible in both themes */
+        header[data-testid="stHeader"] svg, 
+        [data-testid="stToolbar"] svg {{
+            fill: var(--text-main) !important;
+            color: var(--text-main) !important;
+        }}
     </style>
     """
 
