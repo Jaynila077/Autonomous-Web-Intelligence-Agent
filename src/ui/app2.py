@@ -310,7 +310,7 @@ def render_sidebar():
         conversations = fetch_conversations()
         for conv in conversations:
             conv_id = conv.get('id')
-            label = conv.get('label', '')
+            label = conv.get('label') or conv.get('title') or conv.get('name') or conv.get('query') or conv.get('first_query') or conv.get('summary') or f"Conversation {conv.get('id', '')[:8]}"
             
             # Truncate to ~30 chars
             truncated_label = label[:30] + '...' if len(label) > 30 else label
@@ -507,15 +507,8 @@ def render_chat_interface():
             )
 
         if last_assistant_msg:
-            # 3 separate markdown calls to ensure report formatting renders correctly
-            st.markdown('<div class="report-card" style="margin-bottom: 48px;">', unsafe_allow_html=True)
-            
-            if last_assistant_msg.get("is_error", False):
-                st.markdown("<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>", unsafe_allow_html=True)
-            
-            st.markdown(last_assistant_msg["content"])
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+            error_header = "<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>" if last_assistant_msg.get("is_error", False) else ""
+            st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{last_assistant_msg["content"]}</div>', unsafe_allow_html=True)
 
     # 3. Query Input Form (Side-by-Side text_input + button)
     def handle_submit():
