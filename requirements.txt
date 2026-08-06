@@ -58,3 +58,4 @@ nest_asyncio>=1.6.0
 pytest>=8.0.0
 feedparser>=6.0.0
 ddgs>=3.0.0
+streamlit-cookies-manager>=0.1.0
