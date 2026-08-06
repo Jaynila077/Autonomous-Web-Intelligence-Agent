@@ -1,60 +1,65 @@
+# src/tools/email_sender.py
 import os
-import base64
-import resend
-
+import uuid
+import smtplib
 import html
-
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from dotenv import load_dotenv
+
 load_dotenv(override=True)
 
-# Guarded setup at module level; will not crash if missing on import
-resend.api_key = os.getenv("RESEND_API_KEY")
 
 def send_report_email(to_email: str, subject: str, pdf_path: str, query: str) -> str:
     """
-    Sends an email with a PDF file attached via Resend.
-    Reads RESEND_API_KEY and EMAIL_FROM from environment variables.
-    Reads the PDF at pdf_path as bytes, base64-encodes it, and attaches it.
+    Sends the generated OSINT PDF report via Gmail SMTP using SSL (port 465).
     """
-    api_key = os.getenv("RESEND_API_KEY")
-    email_from = os.getenv("EMAIL_FROM")
+    gmail_address = os.getenv("GMAIL_ADDRESS")
+    gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
 
-    if not api_key:
-        raise RuntimeError("Missing required environment variable: RESEND_API_KEY")
-    if not email_from:
-        raise RuntimeError("Missing required environment variable: EMAIL_FROM")
-
-    # Ensure api_key is set correctly if it was loaded after import
-    resend.api_key = api_key
+    if not gmail_address:
+        raise RuntimeError("Missing required environment variable: GMAIL_ADDRESS")
+    if not gmail_app_password:
+        raise RuntimeError("Missing required environment variable: GMAIL_APP_PASSWORD")
 
     try:
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_bytes = pdf_file.read()
+        # Create MIME container
+        msg = MIMEMultipart()
+        msg["From"] = gmail_address
+        msg["To"] = to_email
+        msg["Subject"] = subject
 
-        encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-        filename = os.path.basename(pdf_path)
-
+        # HTML Body content matching original specs
         html_content = (
             f"<p>Hello,</p>"
             f"<p>Your report for the query: <strong>{html.escape(query)}</strong> is ready.</p>"
             f"<p>Please find the full research report attached as a PDF.</p>"
         )
+        msg.attach(MIMEText(html_content, "html"))
 
-        params = {
-            "from": email_from,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content,
-            "attachments": [
-                {
-                    "filename": filename,
-                    "content": encoded_pdf
-                }
-            ]
-        }
+        # Attach PDF
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"PDF report not found at path: {pdf_path}")
 
-        response = resend.Emails.send(params)
-        return response["id"]
+        with open(pdf_path, "rb") as pdf_file:
+            pdf_bytes = pdf_file.read()
+
+        filename = os.path.basename(pdf_path)
+        attachment = MIMEApplication(pdf_bytes, Name=filename)
+        attachment["Content-Disposition"] = f'attachment; filename="{filename}"'
+        msg.attach(attachment)
+
+        # Generate a unique identifier for tracking/logging (mimicking Resend's return ID)
+        message_id = f"gmail_smtp_{uuid.uuid4().hex}"
+        msg["Message-ID"] = f"<{message_id}@local.awt>"
+
+        # Connect to Gmail SMTP server using SSL on port 465
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_address, gmail_app_password)
+            server.send_message(msg)
+
+        return message_id
 
     except Exception as e:
         if isinstance(e, RuntimeError):
