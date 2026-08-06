@@ -1,0 +1,1 @@
+The search results for "Guns N' Roses" could not be found as the TAVILY_API_KEY environment variable is not set.
