@@ -3,6 +3,7 @@ import os
 import time
 import json
 import requests
+import markdown
 import streamlit as st
 
 # ============================================================================
@@ -171,7 +172,7 @@ def fetch_conversation_messages(conversation_id: str):
             for msg in raw_messages:
                 formatted_messages.append({
                     "role": msg["role"],
-                    "content": msg["content"] or "*(Report generating...)*",
+                    "content": markdown.markdown(msg["content"] or "*(Report generating...)*"),
                     "is_error": False,
                 })
             st.session_state.messages = formatted_messages
@@ -508,7 +509,13 @@ def render_chat_interface():
 
         if last_assistant_msg:
             error_header = "<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>" if last_assistant_msg.get("is_error", False) else ""
-            st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{last_assistant_msg["content"]}</div>', unsafe_allow_html=True)
+            
+            # Convert raw markdown to HTML using the markdown library
+            raw_content = last_assistant_msg.get("content", "")
+            html_content = markdown.markdown(raw_content, extensions=['extra', 'sane_lists'])
+            
+            # Embed the generated HTML inside the styled div
+            st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{html_content}</div>', unsafe_allow_html=True)
 
     # 3. Query Input Form (Side-by-Side text_input + button)
     def handle_submit():
