@@ -9,6 +9,12 @@ from sqlmodel import Session
 from src.api.schemas import JobStatus
 from src.api.database import engine, Job, Message
 
+from src.tools.pdf_export import export_report_to_pdf
+from src.tools.email_sender import send_report_email
+from src.api.database import User
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
 
 def _sync_pipeline_runner(user_id: str, job_id: str, query: str) -> str:
     """
@@ -84,6 +90,30 @@ async def execute_agent_pipeline(ctx: dict, job_id: str, user_id: str, query: st
                     db.add(msg)
 
             db.commit()
+
+        # 4. Exporting to PDF
+        try:
+            with Session(engine) as db:
+                user = db.get(User, user_id)
+                if not user or not user.email:
+                    print(f"Skipping PDF export and email: No valid email found for user_id {user_id}.")
+                else:
+                    if report_path.endswith(".md"):
+                        pdf_path = report_path[:-3] + ".pdf"
+                    else:
+                        pdf_path = report_path + ".pdf"
+                        
+                    final_pdf_path = export_report_to_pdf(report_text, pdf_path)
+                    
+                    send_report_email(
+                        to_email=user.email,
+                        subject=f"Your AWIS Report: {query[:60]}",
+                        pdf_path=final_pdf_path,
+                        query=query
+                    )
+                    print(f"Successfully generated PDF and sent email to {user.email}")
+        except Exception as pdf_email_exc:
+            print(f"Non-fatal error during PDF generation or email sending: {pdf_email_exc}")
 
     except Exception as exc:
         with Session(engine) as db:
