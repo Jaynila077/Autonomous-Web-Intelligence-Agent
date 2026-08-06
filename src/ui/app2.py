@@ -2,8 +2,10 @@
 import os
 import time
 import json
+import datetime
 import requests
 import streamlit as st
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # ============================================================================
 # CONFIGURATION & ENVIRONMENT
@@ -19,26 +21,59 @@ st.set_page_config(
 )
 
 # ============================================================================
+# COOKIE MANAGER INITIALIZATION & PERSISTENT SESSION RESTORATION
+# ============================================================================
+
+# Initialize cookie manager (uses a secure password key stored in env or dev fallback)
+cookies = EncryptedCookieManager(
+    prefix="awis_app_",
+    password=os.getenv("COOKIE_PASSWORD", "awis-secret-cookie-key-32bytes-min!"),
+)
+
+if not cookies.ready():
+    # Wait for browser cookie synchronization to complete before rendering
+    st.stop()
+
+# Helper routines for setting/clearing cookie state
+def set_auth_cookies(token: str, user_id: str, email: str):
+    expires_at = datetime.datetime.now() + datetime.timedelta(days=7)
+    cookies["token"] = token
+    cookies["user_id"] = user_id
+    cookies["email"] = email
+    cookies.save()
+
+def clear_auth_cookies():
+    for key in ["token", "user_id", "email"]:
+        if key in cookies:
+            del cookies[key]
+    cookies.save()
+
+# Restore session state from cookies on initial load/refresh if available
+cookie_token = cookies.get("token")
+cookie_user_id = cookies.get("user_id")
+cookie_email = cookies.get("email")
+
+# ============================================================================
 # SESSION STATE INITIALIZATION
 # ============================================================================
 
 if "token" not in st.session_state:
-    st.session_state.token = None
+    st.session_state.token = cookie_token if cookie_token else None
 if "user_id" not in st.session_state:
-    st.session_state.user_id = None
+    st.session_state.user_id = cookie_user_id if cookie_user_id else None
 if "email" not in st.session_state:
-    st.session_state.email = None
+    st.session_state.email = cookie_email if cookie_email else None
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "active_job_id" not in st.session_state:
     st.session_state.active_job_id = None
 if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
-if 'theme' not in st.session_state:
+if "theme" not in st.session_state:
     st.session_state.theme = "light"  # Default theme
 
 # ============================================================================
-# THEME/ CSS INJECTION
+# THEME / CSS INJECTION
 # ============================================================================
 
 def get_theme_css():
@@ -147,6 +182,9 @@ def fetch_conversations():
             return response.json()
         elif response.status_code == 401:
             st.session_state.token = None
+            st.session_state.user_id = None
+            st.session_state.email = None
+            clear_auth_cookies()
             st.rerun()
         else:
             st.sidebar.error("Failed to load conversation history.")
@@ -245,6 +283,7 @@ def render_login_screen():
                                 st.session_state.token = data["access_token"]
                                 st.session_state.user_id = data["user_id"]
                                 st.session_state.email = email
+                                set_auth_cookies(data["access_token"], data["user_id"], email)
                                 st.success("Success. Initializing session...")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -279,6 +318,7 @@ def render_login_screen():
                                 st.session_state.token = data["access_token"]
                                 st.session_state.user_id = data["user_id"]
                                 st.session_state.email = reg_email
+                                set_auth_cookies(data["access_token"], data["user_id"], reg_email)
                                 st.success("Account created. Auto-authenticating...")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -295,7 +335,7 @@ def render_login_screen():
 
 def render_sidebar():
     with st.sidebar:
-        # App name (minimal, removed UID)
+        # App name
         st.markdown("<div style='font-weight: 600; font-size: 1.125rem; margin-bottom: 24px; color: var(--text-main);'>AWIS ResearchAssist</div>", unsafe_allow_html=True)
         # New Query button
         if st.button("+ New Query", use_container_width=True):
@@ -312,14 +352,12 @@ def render_sidebar():
             conv_id = conv.get('id')
             label = conv.get('label') or conv.get('title') or conv.get('name') or conv.get('query') or conv.get('first_query') or conv.get('summary') or f"Conversation {conv.get('id', '')[:8]}"
             
-            # Truncate to ~30 chars
+            # Truncate label
             truncated_label = label[:30] + '...' if len(label) > 30 else label
             
             # Check active state
             is_active = (st.session_state.get('conversation_id') == conv_id)
             
-            # Use Streamlit's primary button type to isolate the active item, 
-            # then inject CSS to apply the var(--accent-color) per mockup
             button_type = "primary" if is_active else "secondary"
             if is_active:
                 st.markdown(
@@ -369,6 +407,8 @@ def render_sidebar():
             st.session_state.email = None
             st.session_state.messages = []
             st.session_state.active_job_id = None
+            st.session_state.conversation_id = None
+            clear_auth_cookies()
             st.rerun()
 
 # ============================================================================
@@ -377,20 +417,18 @@ def render_sidebar():
 
 def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report_download_url: str) -> dict:
     """
-    Executes in-place terminal status polling using st.empty() placeholders.
-    Updates stage metrics in real time without causing Streamlit reruns or UI glitching.
+    Executes in-place status polling using st.empty() placeholders.
+    Updates stage metrics in real time without causing Streamlit reruns.
     """
     status_placeholder = st.empty()
     completed = False
     final_result = {"success": False, "content": "", "error": None}
 
     token = st.session_state.token
-    # Construct dual-auth URL for compatibility with SSE endpoint parameter fallback
     sse_auth_url = f"{API_BASE_URL}{status_stream_url}?token={token}"
 
     while not completed:
         try:
-            # Poll status directly via short-timeout GET request on the status endpoint
             resp = requests.get(sse_auth_url, stream=True, timeout=3)
 
             if resp.status_code == 200:
@@ -430,19 +468,20 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
                 completed = True
                 final_result["success"] = False
                 final_result["error"] = f"Authentication failure ({resp.status_code}). Token expired or invalid."
+                st.session_state.token = None
+                st.session_state.user_id = None
+                st.session_state.email = None
+                clear_auth_cookies()
                 break
             else:
-                # Retry on transient status codes
                 pass
 
-        except requests.RequestException as exc:
-            # Handle brief network glitches during polling
+        except requests.RequestException:
             pass
 
         if not completed:
             time.sleep(1.5)
 
-    # Clear status placeholder once terminal state is reached
     status_placeholder.empty()
 
     if not final_result["success"]:
@@ -473,20 +512,19 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
 def render_chat_interface():
     render_sidebar()
 
-    # 1. Minimal Header
+    # Minimal Header
     st.markdown("<h1 style='font-size: 1.5rem; font-weight: 600; margin-bottom: 40px; color: var(--text-main);'>Query Results</h1>", unsafe_allow_html=True)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 2. Render Existing Thread Messages (Latest Only)
+    # Render Existing Thread Messages (Latest Only)
     if not st.session_state.messages:
         st.markdown(
             "<p style='color: var(--text-muted); margin-bottom: 48px;'>Submit a query to generate a report.</p>",
             unsafe_allow_html=True,
         )
     else:
-        # Find the last user and assistant messages
         last_user_msg = None
         last_assistant_msg = None
         for msg in reversed(st.session_state.messages):
@@ -510,7 +548,7 @@ def render_chat_interface():
             error_header = "<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>" if last_assistant_msg.get("is_error", False) else ""
             st.markdown(f'<div class="report-card" style="margin-bottom: 48px;">{error_header}{last_assistant_msg["content"]}</div>', unsafe_allow_html=True)
 
-    # 3. Query Input Form (Side-by-Side text_input + button)
+    # Query Input Form
     def handle_submit():
         if st.session_state.query_widget and st.session_state.query_widget.strip():
             st.session_state.pending_query = st.session_state.query_widget
@@ -537,10 +575,10 @@ def render_chat_interface():
     if is_processing:
         st.markdown("<div style='font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;'>Generating report...</div>", unsafe_allow_html=True)
 
-    # 4. Core API Execution Logic (Preserved entirely)
+    # Core API Execution Logic
     if st.session_state.get("pending_query"):
         query_text = st.session_state.pending_query
-        st.session_state.pending_query = ""  # Clear after capturing to prevent rerun loops
+        st.session_state.pending_query = ""
         
         if not query_text or len(query_text.strip()) < 5:
             st.warning("Query prompt must be at least 5 characters long.")
@@ -548,10 +586,8 @@ def render_chat_interface():
 
         clean_query = query_text.strip()
 
-        # Append User Message to Thread
         st.session_state.messages.append({"role": "user", "content": clean_query})
 
-        # Submit Query to API
         try:
             resp = requests.post(
                 f"{API_BASE_URL}/api/v1/queries/",
@@ -570,11 +606,9 @@ def render_chat_interface():
                 status_stream_url = job_data["status_stream_url"]
                 report_download_url = job_data["report_download_url"]
 
-                # Capture conversation_id returned by backend (new thread or existing)
                 st.session_state.conversation_id = job_data.get("conversation_id", st.session_state.conversation_id)
                 st.session_state.active_job_id = job_id
 
-                # Poll status & retrieve report
                 result = poll_job_status_and_fetch_report(job_id, status_stream_url, report_download_url)
 
                 if result["success"]:
@@ -588,6 +622,9 @@ def render_chat_interface():
             elif resp.status_code == 401:
                 st.error("Authentication expired. Please log in again.")
                 st.session_state.token = None
+                st.session_state.user_id = None
+                st.session_state.email = None
+                clear_auth_cookies()
                 time.sleep(1)
                 st.rerun()
             else:
