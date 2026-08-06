@@ -212,6 +212,24 @@ def get_theme_css():
             fill: var(--text-main) !important;
             color: var(--text-main) !important;
         }}
+
+        /* Input Focus & Active States */
+        .stTextInput input:focus, 
+        .stTextInput input:active {{
+            background-color: var(--card-bg) !important;
+            color: var(--text-main) !important;
+        }}
+
+        /* Input Placeholder */
+        .stTextInput input::placeholder {{
+            color: var(--text-muted) !important;
+            opacity: 1 !important;
+        }}
+
+        /* Active Tab Highlight Indicator */
+        [data-baseweb="tab-highlight"] {{
+            background-color: var(--accent-color) !important;
+        }}
     </style>
     """
 
