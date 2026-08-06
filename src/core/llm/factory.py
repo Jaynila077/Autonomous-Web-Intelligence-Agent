@@ -29,11 +29,12 @@ def _validate_groq_model(model_name: str, api_key: str) -> None:
 def build_production_llm():
     token_logger = TokenLoggerCallback()
 
-    # 1. Primary Option: NVIDIA NIM API (meta/llama-3.1-70b-instruct)
+    
+    # 1. Primary Option: NVIDIA NIM API (nemotron-3-super:120b)
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
         return ChatOpenAI(
-            model=os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
+            model=os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
             openai_api_key=nvidia_key,
             openai_api_base="https://integrate.api.nvidia.com/v1",
             temperature=0.0,
@@ -43,13 +44,13 @@ def build_production_llm():
         )
 
     # 2. Secondary Option: Groq LPU
-    groq_key = os.getenv("GROQ_API_KEY")
-    if groq_key:
-        model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-        _validate_groq_model(model_name, groq_key)
+    nvidia_key = os.getenv("NVIDIA_API_KEY")
+    if nvidia_key:
+        model_name = os.getenv("GROQ_MODEL", "meta/llama-3.1-70b-instruct")
+        _validate_groq_model(model_name, nvidia_key)
         return ToolParsingChatGroq(
             model_name=model_name,
-            groq_api_key=groq_key,
+            groq_api_key=nvidia_key,
             temperature=0.0,
             max_retries=5,
             parallel_tool_calls=False,

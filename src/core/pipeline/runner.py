@@ -95,6 +95,8 @@ def run_pipeline(raw_query: str, user_id: str = "default", job_id: str = "defaul
                 )
             callbacks_list.append(langfuse_handler)
             print(f"[Langfuse Observability] Tracing Active -> Host: {host_url}")
+        else:
+            print("[Langfuse] Tracing disabled: missing LANGFUSE_PUBLIC_KEY/SECRET_KEY in .env")
     except Exception as e:
         print(f"[Langfuse Warning] Failed to initialize tracing: {e}")
 
@@ -147,20 +149,15 @@ def run_pipeline(raw_query: str, user_id: str = "default", job_id: str = "defaul
     final_output = output_check.response
 
     # 4. Report Saving — job-scoped, matching build_awis_agent's isolated vfs_path
-    # reports_dir = os.path.abspath("./reports")
     ws_reports_dir = os.path.join(vfs_path, "reports")
-    # os.makedirs(reports_dir, exist_ok=True)
     os.makedirs(ws_reports_dir, exist_ok=True)
 
     slug = re.sub(r'[^a-zA-Z0-9]+', '_', clean_query.strip().lower()).strip('_')[:30]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"report_{slug}_{timestamp}.md"
 
-    # filepath = os.path.join(reports_dir, filename)
     ws_filepath = os.path.join(ws_reports_dir, filename)
 
-    # with open(filepath, "w", encoding="utf-8") as f:
-    #     f.write(final_output)
     with open(ws_filepath, "w", encoding="utf-8") as f:
         f.write(final_output)
     with open(latest_file, "w", encoding="utf-8") as f:

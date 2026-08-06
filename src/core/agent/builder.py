@@ -7,7 +7,9 @@ from deepagents.backends import FilesystemBackend
 from src.core.llm import build_production_llm
 from src.core.agent.wrapper import SyncAgentWrapper
 from src.tools.registry import (
+    RESEARCHER_TOOLS,
     VERIFIER_TOOLS,
+    REPORTER_TOOLS,
     select_dynamic_tools,
 )
 
@@ -69,28 +71,30 @@ def build_awis_agent(
                 "name": "Verifier",
                 "description": "STEP 3: Audits raw findings gathered by Researcher for credibility.",
                 "system_prompt": (
-                    "EFFICIENT VERIFICATION MANDATE: You do NOT need to verify data for every tool used in the research phase. "
-                    "Selectively execute 1 to 2 primary tools (e.g., fetch_wiki_data or search_tavily) to quickly verify core claims, dates, and numbers, then summarize credibility concisely."
+                    "Audit research findings gathered by Researcher for credibility, source quality, and technical accuracy. "
+                    "Use assigned search tools to cross-verify claims and return verified facts concisely."
                 ),
                 "tools": VERIFIER_TOOLS,
                 "middleware": [],
             },
             {
                 "name": "Reporter",
-                "description": "STEP 4 (STRICTLY FINAL STEP): Compiles final brief directly as Markdown text without calling any VFS file tools.",
+                "description": "STEP 4 (STRICTLY FINAL STEP - NEVER CALL FIRST): Compiles final brief. CANNOT be called until Researcher finishes.",
                 "system_prompt": (
-                    "You are the Lead Intelligence Reporter. You MUST NOT call 'write_file', 'read_file', 'list_dir', 'save_intelligence_report', or any function tools. "
-                    "Do NOT output XML function calls (<function=...>). "
-                    "Your ONLY task is to write out the full, exhaustive 6-section research report (minimum 1,500 words) directly as clean Markdown text in your final response:\n\n"
-                    "1. Executive Summary & Core Insights\n"
-                    "2. Deep Technical System Architecture & Workflows\n"
-                    "3. Production Code Patterns & GitHub Repositories (with links)\n"
-                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links)\n"
-                    "5. Risk, Bottlenecks & Production Trade-offs\n"
-                    "6. Verified Source Citation Index\n\n"
-                    "Write complete, multi-paragraph text for every single section."
+                    "Compile an exhaustive, highly detailed, production-grade intelligence report (minimum 1,500 words) using the research findings provided in your task description. "
+                    "You MUST include hard facts, dates, paper titles, arXiv links, GitHub repository links, concrete architecture explanations, and verified benchmarks. "
+                    "Structure between 9-15 clear sections: "
+                    "1. Executive Summary & Core Insights, "
+                    "2. Deep Technical System Architecture & Workflows, "
+                    "3. Production Code Patterns & GitHub Repositories (with links), "
+                    "4. Empirical Benchmark & Paper Abstract Audit (with arXiv links), "
+                    "5. Risk, Bottlenecks & Production Trade-offs, "
+                    "6. Verified Source Citation Index. "
+                    "NEVER use dummy placeholder text like 'content goes here'. Write complete, thorough, comprehensive paragraphs for every section. "
+                    "Call save_intelligence_report ONCE passing the complete 6-section report string as report_content. "
+                    "CRITICAL: Once save_intelligence_report finishes, output 'REPORT_SAVED_SUCCESSFULLY' and stop execution immediately."
                 ),
-                "tools": [],
+                "tools": REPORTER_TOOLS,
                 "middleware": [],
             },
         ],
