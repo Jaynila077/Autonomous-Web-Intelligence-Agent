@@ -1,7 +1,6 @@
 import os
 import random
 import requests
-from langchain_core.tools import tool
 from typing import List, Dict, Any, Optional
 from src.tools.cache_manager import cache_result, truncate_tool_output
 
@@ -20,16 +19,13 @@ def _fetch_wiki_data(query: str, lang: str = "en") -> Dict[str, Any]:
         "pllimit": "max"
     }
     headers = {"User-Agent": "AWIS_Intelligence_System/2.0"}
-
     try:
         response = requests.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         pages = response.json().get("query", {}).get("pages", {})
-
         for page_id, page_info in pages.items():
             if page_id == "-1":
                 return {"error": f"No Wikipedia page found for '{query}'"}
-
             return {
                 "title": page_info.get("title"),
                 "content": page_info.get("extract", "No content available."),
@@ -37,14 +33,10 @@ def _fetch_wiki_data(query: str, lang: str = "en") -> Dict[str, Any]:
                 "source_url": f"https://{lang}.wikipedia.org/wiki/{query.replace(' ', '_')}",
                 "source_platform": "Wikipedia"
             }
-
         return {"error": f"No Wikipedia page found for '{query}'"}
-
     except Exception as e:
         return {"error": f"Wikipedia API Request failed: {str(e)}"}
 
-
-@tool
 def fetch_wiki_data(query: str, lang: str = "en") -> str:
     """
     Fetches a structured summary of a Wikipedia article via MediaWiki API (Cached 24h).
@@ -52,13 +44,11 @@ def fetch_wiki_data(query: str, lang: str = "en") -> str:
     res = _fetch_wiki_data(query=query, lang=lang)
     return truncate_tool_output(res, max_chars=1200)
 
-
 @cache_result(expire=86400, prefix="tavily")
 def _fetch_tavily(query: str, max_results: int = 3) -> Dict[str, Any]:
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
         return {"error": "TAVILY_API_KEY environment variable is not set."}
-
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=api_key)
@@ -85,8 +75,6 @@ def _fetch_tavily(query: str, max_results: int = 3) -> Dict[str, Any]:
     except Exception as e:
         return {"error": f"Tavily search failed: {str(e)}"}
 
-
-@tool
 def search_tavily(
     query: str,
     max_results: int = 3,
@@ -100,8 +88,6 @@ def search_tavily(
     res = _fetch_tavily(query=query, max_results=max_results)
     return truncate_tool_output(res, max_chars=1200)
 
-
-@tool
 def search_web_news(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
     """
     Searches the general web and live headlines via DuckDuckGo.
@@ -112,7 +98,6 @@ def search_web_news(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
             raw_results = list(ddgs.text(query, max_results=max_results))
         if not raw_results:
             return [{"error": f"No news results found for '{query}'"}]
-
         return [
             {
                 "title": article.get("title", "No Title"),
@@ -125,8 +110,6 @@ def search_web_news(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
     except Exception as e:
         return [{"error": f"DuckDuckGo search error: {str(e)}"}]
 
-
-@tool
 def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[str, Any]]:
     """
     Runs a neural/semantic web search via Exa API and returns extracted highlights.
@@ -134,7 +117,6 @@ def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[st
     api_key = os.environ.get("EXA_API_KEY")
     if not api_key:
         return [{"error": "EXA_API_KEY environment variable is not set."}]
-
     try:
         from exa_py import Exa
         exa = Exa(api_key=api_key)
@@ -147,7 +129,6 @@ def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[st
         results = response.results
         if not results:
             return [{"error": "No semantic matches found."}]
-
         return [
             {
                 "title": article.title,
@@ -160,8 +141,6 @@ def search_exa_semantic(semantic_query: str, max_links: int = 2) -> List[Dict[st
     except Exception as e:
         return [{"error": f"Exa API call failed: {str(e)}"}]
 
-
-@tool
 def find_working_searxng(min_uptime_pct: float = 90.0, max_instances: int = 5) -> List[Dict[str, Any]]:
     """
     Discovers currently reachable, publicly-hosted SearXNG instances.
@@ -172,7 +151,6 @@ def find_working_searxng(min_uptime_pct: float = 90.0, max_instances: int = 5) -
         instances = directory_response.json().get("instances", {})
     except Exception as e:
         return [{"error": f"Failed to fetch SearXNG directory: {str(e)}"}]
-
     candidates = [
         url.rstrip("/")
         for url, info in instances.items()
@@ -180,10 +158,8 @@ def find_working_searxng(min_uptime_pct: float = 90.0, max_instances: int = 5) -
         and info.get("uptime", {}).get("uptimeDay", 0) > min_uptime_pct
     ]
     random.shuffle(candidates)
-
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     working_instances = []
-
     for base_url in candidates:
         if len(working_instances) >= max_instances:
             break
@@ -198,11 +174,8 @@ def find_working_searxng(min_uptime_pct: float = 90.0, max_instances: int = 5) -
                 working_instances.append({"url": base_url, "response_type": "json", "source_platform": "SearXNG"})
         except Exception:
             continue
-
     return working_instances if working_instances else [{"error": "No working SearXNG instances found."}]
 
-
-@tool
 def search_site_content(domain: str, query: str, max_results: int = 3) -> List[Dict[str, Any]]:
     """
     Searches for content within a specific domain via a 'site:' dork query.
@@ -214,7 +187,6 @@ def search_site_content(domain: str, query: str, max_results: int = 3) -> List[D
             raw_results = list(ddgs.text(dork_query, max_results=max_results))
         if not raw_results:
             return [{"error": f"No results found on '{domain}' for '{query}'"}]
-
         return [
             {
                 "title": result.get("title", "No Title"),
@@ -227,8 +199,6 @@ def search_site_content(domain: str, query: str, max_results: int = 3) -> List[D
     except Exception as e:
         return [{"error": f"Site dork search failed: {str(e)}"}]
 
-
-@tool
 def find_site_feeds(domain: str) -> List[Dict[str, Any]]:
     """
     Discovers a website's RSS/Atom/JSON syndication feeds.
@@ -238,7 +208,6 @@ def find_site_feeds(domain: str) -> List[Dict[str, Any]]:
         feeds = search_feeds(domain)
         if not feeds:
             return [{"error": f"No syndication feeds found for '{domain}'."}]
-
         return [
             {
                 "url": str(feed.url),
