@@ -2,6 +2,9 @@ import subprocess
 import sys
 import time
 
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 # Define the full suite of AWIS MCP microservices
 SERVERS = [
     {"name": "researcher_server",   "module": "src.mcp_servers.researcher_server",   "port": 8001},

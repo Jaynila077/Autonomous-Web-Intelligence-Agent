@@ -1,5 +1,8 @@
 from fastmcp import FastMCP
 
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 # Import underlying search and discovery functions from src/tools/
 from src.tools.web_tools import (
     search_tavily as wt_search_tavily,
