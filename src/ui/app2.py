@@ -63,8 +63,6 @@ def get_theme_css():
 
     return f"""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
-
         :root {{
             {theme_vars}
         }}
@@ -73,15 +71,29 @@ def get_theme_css():
         .stApp, section[data-testid="stSidebar"] {{
             background-color: var(--bg-color);
             color: var(--text-main);
-            font-family: 'Inter', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }}
 
         /* Inputs & Buttons */
         .stButton > button, .stTextInput input {{
             background-color: var(--card-bg);
-            color: var(--text-main);
             border: 1px solid var(--border-color);
-            font-family: 'Inter', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: var(--text-main) !important;
+        }}
+        
+        .stButton > button p, .stButton > button div {{
+            color: var(--text-main) !important;
+        }}
+        
+        .stButton > button[kind="primary"] {{
+            color: var(--text-main) !important;
+            background-color: var(--card-bg) !important;
+            border-color: var(--accent-color) !important;
+        }}
+        
+        .stButton > button[kind="primary"] p {{
+            color: var(--text-main) !important;
         }}
 
         /* Report Card Component */
@@ -91,7 +103,7 @@ def get_theme_css():
             border-left: 4px solid var(--accent-color);
             border-radius: 8px;
             padding: 32px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: ui-monospace, 'SF Mono', 'Consolas', monospace;
             color: var(--text-main);
         }}
 
@@ -178,7 +190,7 @@ def render_login_screen():
     col_head, col_theme = st.columns([5, 1])
     
     with col_head:
-        st.markdown("<h2 style='color: var(--text-main); letter-spacing: -0.02em; font-weight: 600;'>ResearchAssist</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color: var(--text-main); letter-spacing: -0.02em; font-weight: 600;'>AWIS ResearchAssist</h2>", unsafe_allow_html=True)
         st.markdown("<p style='color: var(--text-muted); font-size: 0.875rem;'>Log in or register to continue.</p>", unsafe_allow_html=True)
         
     with col_theme:
@@ -194,7 +206,7 @@ def render_login_screen():
         st.markdown(
             f"""
             <div class='report-card'>
-                <h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: Inter, sans-serif;'>Error</h3>
+                <h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;'>Error</h3>
                 <div style='color: var(--text-main); font-size: 0.875rem;'>
                     Unable to establish HTTP handshake with API Gateway at <code>{API_BASE_URL}</code>.<br/>
                     Ensure your Uvicorn service is operational: <code>python -m src.api.main</code>
@@ -284,8 +296,7 @@ def render_login_screen():
 def render_sidebar():
     with st.sidebar:
         # App name (minimal, removed UID)
-        st.markdown("<div style='font-weight: 600; font-size: 1.125rem; margin-bottom: 24px; color: var(--text-main);'>ResearchAssist</div>", unsafe_allow_html=True)
-
+        st.markdown("<div style='font-weight: 600; font-size: 1.125rem; margin-bottom: 24px; color: var(--text-main);'>AWIS ResearchAssist</div>", unsafe_allow_html=True)
         # New Query button
         if st.button("+ New Query", use_container_width=True):
             st.session_state.messages = []
@@ -397,7 +408,7 @@ def poll_job_status_and_fetch_report(job_id: str, status_stream_url: str, report
                             status_placeholder.markdown(
                                 f"""
                                 <div class="report-card">
-                                    <div style="font-family: 'Inter', sans-serif; font-weight: 600; margin-bottom: 12px; color: var(--text-main);">Generating report...</div>
+                                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-weight: 600; margin-bottom: 12px; color: var(--text-main);">Generating report...</div>
                                     <div style="color: var(--text-main); margin-bottom: 4px;">Status: {current_status}</div>
                                     <div style="color: var(--text-muted); font-size: 0.875rem;">Current step: {current_agent}</div>
                                 </div>
@@ -500,7 +511,7 @@ def render_chat_interface():
             st.markdown('<div class="report-card" style="margin-bottom: 48px;">', unsafe_allow_html=True)
             
             if last_assistant_msg.get("is_error", False):
-                st.markdown("<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: Inter, sans-serif;'>Error</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 style='color: #ef4444; margin-top: 0; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;'>Error</h3>", unsafe_allow_html=True)
             
             st.markdown(last_assistant_msg["content"])
             
