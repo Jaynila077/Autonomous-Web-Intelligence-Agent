@@ -78,31 +78,33 @@ if "active_job_id" not in st.session_state:
 if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
 if "theme" not in st.session_state:
-    # Use stored cookie theme if valid, otherwise fallback to "light"
-    st.session_state.theme = cookie_theme if cookie_theme in ["light", "dark"] else "light"
+    # Use stored cookie theme if valid, otherwise fallback to "dark"
+    st.session_state.theme = cookie_theme if cookie_theme in ["light", "dark"] else "dark"
 
 # ============================================================================
 # THEME / CSS INJECTION
 # ============================================================================
 
 def get_theme_css():
-    if st.session_state.theme == "light":
-        theme_vars = """
-        --bg-color: #ffffff;
-        --text-main: #171717;
-        --border-color: #e5e5e5;
-        --accent-color: #2563eb;
-        --text-muted: #737373;
-        --card-bg: #fafafa;
-        """
-    else:
+    if st.session_state.theme == "dark":
         theme_vars = """
         --bg-color: #0f0f0f;
         --text-main: #e5e5e5;
         --border-color: #2a2a2a;
         --accent-color: #3b82f6;
         --text-muted: #a3a3a3;
-        --card-bg: #1a1a1a;
+        --card-bg: #1a1a1a; 
+        """
+    else:
+        theme_vars = """
+
+        --bg-color: #ffffff;
+        --text-main: #171717;
+        --border-color: #e5e5e5;
+        --accent-color: #2563eb;
+        --text-muted: #737373;
+        --card-bg: #fafafa;
+                
         """
 
     return f"""
