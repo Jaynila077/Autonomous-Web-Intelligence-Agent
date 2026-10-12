@@ -219,3 +219,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Graphify
+graphify-out/
+
+# Workspace cache
+workspace/cache/
