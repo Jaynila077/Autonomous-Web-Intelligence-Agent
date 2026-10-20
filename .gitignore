@@ -223,5 +223,6 @@ __marimo__/
 # Graphify
 graphify-out/
 
-# Workspace cache
+# Workspace cache and results
 workspace/cache/
+workspace/users/
