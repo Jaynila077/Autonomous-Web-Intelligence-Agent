@@ -34,7 +34,7 @@ def build_production_llm():
     nvidia_key = os.getenv("NVIDIA_API_KEY")
     if nvidia_key:
         return ChatOpenAI(
-            model=os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
+            model=os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"),
             openai_api_key=nvidia_key,
             openai_api_base="https://integrate.api.nvidia.com/v1",
             temperature=0.0,
