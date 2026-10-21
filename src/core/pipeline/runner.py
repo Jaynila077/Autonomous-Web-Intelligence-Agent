@@ -174,9 +174,12 @@ def run_pipeline(raw_query: str, user_id: str = "default", job_id: str = "defaul
     # Flush async traces to Langfuse before returning
     if langfuse_handler:
         try:
-            langfuse_handler.flush()
-        except Exception as e:
-            logger.warning(f"[Handled] {e}")
+            if hasattr(langfuse_handler, "flush"):
+                langfuse_handler.flush()
+            elif hasattr(langfuse_handler, "langfuse") and hasattr(langfuse_handler.langfuse, "flush"):
+                langfuse_handler.langfuse.flush()
+        except Exception:
+            pass  # Silently ignore if the SDK version auto-flushes
 
     return final_output
 
