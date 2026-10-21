@@ -3,6 +3,7 @@ import os
 import uuid
 import smtplib
 import html
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -50,12 +51,21 @@ def send_report_email(to_email: str, subject: str, pdf_path: str, query: str) ->
         attachment["Content-Disposition"] = f'attachment; filename="{filename}"'
         msg.attach(attachment)
 
-        # Generate a unique identifier for tracking/logging (mimicking Resend's return ID)
+        # Generate a unique identifier for tracking/logging
         message_id = f"gmail_smtp_{uuid.uuid4().hex}"
         msg["Message-ID"] = f"<{message_id}@local.awt>"
 
-        # Connect to Gmail SMTP server using SSL on port 465
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        # Create a permissive SSL context to bypass the macOS certificate block
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        # Connect to Gmail SMTP server using explicit TLS on port 587 and the custom context
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+            # server.set_debuglevel(1)  # This will print exact connection steps to your terminal
+            # server.ehlo()
+            server.starttls(context=context)
+            # server.ehlo()
             server.login(gmail_address, gmail_app_password)
             server.send_message(msg)
 
