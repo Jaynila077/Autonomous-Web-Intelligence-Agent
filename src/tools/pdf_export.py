@@ -40,6 +40,9 @@ def export_report_to_pdf(markdown_content: str, output_path: str) -> str:
         extensions=["tables", "fenced_code"]
     )
 
+    # Sanitize Unicode characters that xhtml2pdf cannot render
+    html_body = html_body.replace('→', '->').replace('←', '<-').replace('↔', '<->')
+
     # Clean, print-friendly CSS template compatible with xhtml2pdf
     html_document = f"""<!DOCTYPE html>
 <html>
