@@ -34,7 +34,7 @@ arxiv>=2.1.0
 youtube-transcript-api>=0.6.0
 yt-dlp>=2024.3.10
 google-api-python-client>=2.120.0
--e git+https://github.com/Mahak753/langchain-mcp-adapters.git@main
+-e git+https://github.com/Mahak753/langchain-mcp-adapters.git@main#egg=langchain-mcp-adapters
 pdfplumber>=0.11.0
 
 # Web Framework & UI
