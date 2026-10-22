@@ -86,6 +86,8 @@ Autonomous-Web-Intelligence-Agent/
 ├── awis.py                         # Cross-platform CLI process manager (macOS/Linux/Windows)
 ├── start_awis.sh / .ps1            # Startup scripts for MCP, FastAPI, ARQ, and Streamlit
 ├── stop_awis.sh / .ps1             # Graceful shutdown scripts for all background processes
+├── restart_test_part1.py           # Phase 4 persistence test: pre-restart job submission
+├── restart_test_part2.py           # Phase 4 persistence test: post-restart recovery check
 ├── environment.yml                 # Minimal Conda blueprint (Python 3.11 + pip)
 ├── requirements.txt                # Locked PyPI dependencies + custom MCP adapter fork
 ├── .env.example                    # Environment configuration template
@@ -111,8 +113,9 @@ Autonomous-Web-Intelligence-Agent/
     │   └── guardrails_wrapper.py   # Async NeMo Guardrails service wrapper
     ├── mcp_servers/                # 5 FastMCP SSE servers & unified launcher (run_all.py)
     ├── tools/                      # Domain tool implementations, DiskCache, PDF & SMTP tools
-    └── ui/
-        └── app.py                  # Streamlit frontend interface
+        └── ui/
+        ├── app.py                  # Primary Streamlit frontend interface
+        └── app2.py                 # Alternative Streamlit frontend interface
 ```
 
 ---

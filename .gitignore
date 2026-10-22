@@ -229,4 +229,6 @@ workspace/users/
 
 # Testing
 src/tools/test_all_tools_output.txt
-src/tools/test_all_tools.pyworkspace/
+src/tools/test_all_tools.py
+
+workspace/
