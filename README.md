@@ -2,6 +2,17 @@
 
 **AWIS** is a production-grade, multi-agent Open-Source Intelligence (OSINT) and deep research platform. Built as the capstone project for the **Post Graduate Certificate Programme in Artificial Intelligence (PGCP-AI)** at **C-DAC ACTS, Pune (Feb–Aug 2026 Batch)**, AWIS orchestrates specialized autonomous subagents across distributed **FastMCP** microservices to plan, scrape, verify, and synthesize cited intelligence reports with automated PDF export and email delivery.
 
+AWIS automates deep open-source research by coordinating four specialized agents to plan queries, gather live data across the web and academic sources, verify claims, and generate cited intelligence reports. Instead of stitching together manual searches or trusting unverified LLM outputs, teams get audited PDF briefs delivered straight to their inbox.
+
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white) ![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?logo=langchain&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+
+<!-- ![AWIS demo](docs/demo.gif) -->
+
+**Highlights:**
+- **Architecture decisions:** Decoupled 20+ research tools across 5 independent FastMCP SSE microservices (`8001`–`8005`) and built a semantic tool router that injects only the top 4 relevant tools per run to prevent context bloat across the 4-subagent (`Planner`, `Researcher`, `Verifier`, `Reporter`) workflow.
+- **Safety & guardrails:** Implemented pre-flight and post-flight NeMo Guardrails for input jailbreak detection, off-topic filtering, PII redaction, and output hallucination/toxicity audits, paired with a dedicated Verifier subagent that checks source credibility.
+- **Reliability & persistence:** Engineered non-blocking background job execution with FastAPI, ARQ, and Redis, backed by PostgreSQL (SQLModel + Alembic migrations), a multi-provider LLM fallback factory (NVIDIA NIM, Groq, GitHub Models, Gemini, OpenRouter), and real-time SSE status streaming.
+
 ---
 
 ## Key Features
