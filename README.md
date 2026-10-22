@@ -206,8 +206,8 @@ pytest
 
 Developed as the Final Capstone Project for the **PGCP-AI (Feb–Aug 2026 Batch)** at **C-DAC ACTS, Pune**:
 
-* **Jay**
-* **Mahak**
-* **Manan**
-* **Sourav**
-* **Swarup**
+* **[Jay Nila](https://github.com/Jaynila077)**
+* **[Mahak Gupta](https://github.com/Mahak753)**
+* **[Manan Garg](https://github.com/MananGarg15)**
+* **[Sourav Gaur](https://github.com/SouravGaur)**
+* **Swarup Patil**
