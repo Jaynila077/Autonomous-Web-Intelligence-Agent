@@ -1,6 +1,6 @@
 # Autonomous Web Intelligence System (AWIS)
 
-**AWIS** is a production-grade, multi-agent Open-Source Intelligence (OSINT) and deep research platform. Built as the capstone project for the **Post Graduate Certificate Programme in Artificial Intelligence (PGCP-AI)** at **C-DAC ACTS, Pune (Feb–Aug 2026 Batch)**, AWIS orchestrates specialized autonomous subagents across distributed **FastMCP** microservices to plan, scrape, verify, and synthesize cited intelligence reports with automated PDF export and email delivery.
+**AWIS** is a production-grade, multi-agent Open-Source Intelligence (OSINT) and deep research platform. AWIS orchestrates specialized autonomous subagents across distributed **FastMCP** microservices to plan, scrape, verify, and synthesize cited intelligence reports with automated PDF export and email delivery.
 
 AWIS automates deep open-source research by coordinating four specialized agents to plan queries, gather live data across the web and academic sources, verify claims, and generate cited intelligence reports. Instead of stitching together manual searches or trusting unverified LLM outputs, teams get audited PDF briefs delivered straight to their inbox.
 
@@ -217,8 +217,6 @@ pytest
 ---
 
 ## Project Team
-
-Developed as the Final Capstone Project for the **PGCP-AI (Feb–Aug 2026 Batch)** at **C-DAC ACTS, Pune**:
 
 * **[Jay Nila](https://github.com/Jaynila077)**
 * **[Mahak Gupta](https://github.com/Mahak753)**
