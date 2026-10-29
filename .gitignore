@@ -226,9 +226,8 @@ graphify-out/
 # Workspace cache and results
 workspace/cache/
 workspace/users/
+workspace/
 
 # Testing
 src/tools/test_all_tools_output.txt
 src/tools/test_all_tools.py
-
-workspace/
